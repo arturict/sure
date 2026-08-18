@@ -991,6 +991,38 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
     assert_no_match(/0\s*of\s*0/, response.body)
   end
 
+  # The coverage headline sums only primary-currency goals, because Goal#currency
+  # is validated against the linked accounts and never against the family. When
+  # every active goal is foreign the sum is zero, and the tile used to fall
+  # through to "No active goals" while the grid right below it listed them.
+  test "index KPI does not claim there are no active goals when they are all foreign" do
+    family = users(:family_admin).family
+    family.goals.destroy_all
+    funded_goal(family, "Berlin", target_amount: 1_000, balance: 400, currency: "EUR")
+
+    get goals_url
+
+    assert_response :success
+    assert_match(/Berlin/, response.body)
+    assert_no_match(/No active goals/i, response.body)
+    assert_match(/No USD goals/i, response.body)
+    assert_match(/1 active goal in another currency/i, response.body)
+  end
+
+  test "index KPI names the goals its coverage headline leaves out" do
+    family = users(:family_admin).family
+    family.goals.destroy_all
+    funded_goal(family, "Roof", target_amount: 1_000, balance: 300)
+    funded_goal(family, "Berlin", target_amount: 1_000, balance: 400, currency: "EUR")
+
+    get goals_url
+
+    assert_response :success
+    assert_match(/30%/, response.body)
+    assert_match(/\$300 of \$1,000 saved/, response.body)
+    assert_match(/1 in another currency/i, response.body)
+  end
+
   test "index KPI counts a paused open-ended goal once" do
     family = users(:family_admin).family
     family.goals.destroy_all
@@ -1177,12 +1209,12 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
     # exactly this goal's backing. Sharing the depository fixture would give
     # every unallocated goal the same $5,000 remainder and make the coverage
     # arithmetic untestable.
-    def funded_goal(family, name, target_amount:, balance:, target_date: nil)
+    def funded_goal(family, name, target_amount:, balance:, target_date: nil, currency: "USD")
       account = Account.create!(
         family: family, accountable: Depository.new,
-        name: "#{name} account", currency: "USD", balance: balance
+        name: "#{name} account", currency: currency, balance: balance
       )
-      g = family.goals.new(name: name, target_amount: target_amount, target_date: target_date, currency: "USD")
+      g = family.goals.new(name: name, target_amount: target_amount, target_date: target_date, currency: currency)
       g.goal_accounts.build(account: account)
       g.save!
       g

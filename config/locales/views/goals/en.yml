@@ -32,10 +32,17 @@ en:
         funded_label: Goals funded
         funded_value: "%{percent}%%"
         funded_none: No active goals
+        funded_other_currency: "No %{currency} goals"
+        funded_other_currency_sub:
+          one: 1 active goal in another currency
+          other: "%{count} active goals in another currency"
         funded_all: Fully funded
         funded_sub_money: "%{saved} of %{target} saved"
         funded_sub_parts:
           on_pace: "%{on_track} of %{total} on pace"
+          other_currency:
+            one: 1 in another currency
+            other: "%{count} in another currency"
         on_track_sub_parts:
           reached:
             one: 1 reached

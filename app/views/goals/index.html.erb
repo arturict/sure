@@ -59,9 +59,15 @@
       <div class="bg-container rounded-xl shadow-border-xs px-5 py-5">
         <p class="text-[11px] font-medium uppercase tracking-wide text-secondary"><%= t(".kpi.funded_label") %></p>
         <% if @kpi[:funded_percent].nil? %>
-          <%# Nothing to divide by: every goal is completed or archived (the
-              strip still renders, because @counts["all"] is non-zero). %>
-          <p class="text-3xl font-medium text-primary mt-2"><%= t(".kpi.funded_none") %></p>
+          <%# Nothing to divide by. Two different states, and saying "No active
+              goals" for the second one printed a headline the goal grid
+              directly below it contradicts. %>
+          <% if @kpi[:active_total].zero? %>
+            <p class="text-3xl font-medium text-primary mt-2"><%= t(".kpi.funded_none") %></p>
+          <% else %>
+            <p class="text-3xl font-medium text-primary mt-2"><%= t(".kpi.funded_other_currency", currency: @kpi[:currency]) %></p>
+            <p class="text-xs text-secondary mt-1"><%= t(".kpi.funded_other_currency_sub", count: @kpi[:other_currency_count]) %></p>
+          <% end %>
         <% else %>
           <% if @kpi[:funded_percent] == 100 %>
             <p class="text-3xl font-medium text-primary mt-2"><%= t(".kpi.funded_all") %></p>
@@ -82,6 +88,9 @@
               parts << t(".kpi.on_track_sub_parts.reached", count: @kpi[:reached_count]) if @kpi[:reached_count].positive?
               parts << t(".kpi.on_track_sub_parts.no_date", count: @kpi[:no_date_count]) if @kpi[:no_date_count].positive?
               parts << t(".kpi.on_track_sub_parts.paused", count: @kpi[:paused_count]) if @kpi[:paused_count].positive?
+              # The headline sums only primary-currency goals, so name the ones
+              # it left out rather than letting the tile under-report in silence.
+              parts << t(".kpi.funded_sub_parts.other_currency", count: @kpi[:other_currency_count]) if @kpi[:other_currency_count].positive?
             %>
             <span class="privacy-sensitive"><%= t(".kpi.funded_sub_money", saved: @kpi[:funded_money].format(precision: 0), target: @kpi[:funded_target_money].format(precision: 0)) %></span><% if parts.any? %> · <%= parts.join(" · ") %><% end %>
           </p>
