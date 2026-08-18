@@ -1,6 +1,8 @@
 require "test_helper"
 
 class Goals::CardComponentTest < ViewComponent::TestCase
+  include EntriesTestHelper
+
   setup do
     @family = families(:dylan_family)
     # A small dedicated balance, so a whole-balance link does not push every
@@ -46,15 +48,49 @@ class Goals::CardComponentTest < ViewComponent::TestCase
     assert_selector "svg circle[stroke='#{DS::ProgressRing.scale_color(goal.progress_percent)}']"
   end
 
+  # Artur's shape: eleven pots earmarked against one savings account all
+  # printed the same account-wide figure. The line has to disappear, not read
+  # zero — zero would claim nothing arrived.
+  test "the card omits the pace line for a goal backed only by an earmark" do
+    create_transaction(account: @account, amount: -900, date: 30.days.ago.to_date)
+    goal = build_goal(name: "Earmarked", allocated_amount: 50)
+
+    assert_nil Goals::CardComponent.new(goal: goal).pace_line
+
+    render_inline(Goals::CardComponent.new(goal: goal))
+
+    assert_no_text "/mo avg"
+  end
+
+  test "the card keeps the pace line for a whole-balance goal" do
+    create_transaction(account: @account, amount: -900, date: 30.days.ago.to_date)
+    goal = build_goal(name: "Whole balance")
+
+    assert_equal "$300/mo avg", Goals::CardComponent.new(goal: goal).pace_line
+
+    render_inline(Goals::CardComponent.new(goal: goal))
+
+    assert_text "/mo avg"
+  end
+
+  test "a dated earmarked goal is told to raise the earmark, not to save monthly" do
+    create_transaction(account: @account, amount: -900, date: 30.days.ago.to_date)
+    goal = build_goal(name: "Dated earmark", target_amount: 5_000,
+                      target_date: 6.months.from_now.to_date, allocated_amount: 50)
+
+    assert_equal :behind, goal.status
+    assert_equal "Raise the earmark by $4,950", Goals::CardComponent.new(goal: goal).footer_line
+  end
+
   private
     def hue(hsl)
       hsl[/hsl\(([\d.]+)/, 1].to_f
     end
 
-    def build_goal(name: "Dateless", color: nil, target_amount: 5_000, target_date: nil)
+    def build_goal(name: "Dateless", color: nil, target_amount: 5_000, target_date: nil, allocated_amount: nil)
       @family.goals.create!(
         name: name, target_amount: target_amount, currency: "USD",
         color: color, target_date: target_date
-      ) { |g| g.goal_accounts.build(account: @account) }
+      ) { |g| g.goal_accounts.build(account: @account, allocated_amount: allocated_amount) }
     end
 end

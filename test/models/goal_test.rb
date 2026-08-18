@@ -330,6 +330,90 @@ class GoalTest < ActiveSupport::TestCase
     assert_equal 300, goal.pace.to_d
   end
 
+  test "pace is nil when the goal only holds a fixed earmark" do
+    account = savings_account("Earmark Savings")
+    goal = @family.goals.create!(
+      name: "Earmarked goal",
+      target_amount: 10_000,
+      currency: "USD"
+    ) { |g| g.goal_accounts.build(account: account, allocated_amount: 2_000) }
+
+    create_transaction(account: account, amount: -300, date: 80.days.ago.to_date)
+    create_transaction(account: account, amount: -300, date: 40.days.ago.to_date)
+    create_transaction(account: account, amount: -300, date: 5.days.ago.to_date)
+
+    # The account netted 900 in, but none of it reaches a fixed earmark:
+    # allocated_amount is only ever written by the goal form.
+    assert_nil goal.pace
+    assert_nil goal.pace_money
+  end
+
+  test "two earmarked goals on one account do not report the same pace" do
+    account = savings_account("Shared Savings")
+    first = @family.goals.create!(name: "Pot A", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 1_000)
+    end
+    second = @family.goals.create!(name: "Pot B", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 2_000)
+    end
+
+    create_transaction(account: account, amount: -600, date: 60.days.ago.to_date)
+    create_transaction(account: account, amount: 3_000, date: 10.days.ago.to_date)
+
+    # Both pots used to print the account's own net (here a negative number,
+    # because the account paid more out than it took in), which said the same
+    # untrue thing about two unrelated pots.
+    assert_nil first.pace
+    assert_nil second.pace
+  end
+
+  test "pace counts only the accounts this goal absorbs the remainder of" do
+    earmarked = savings_account("Earmarked Half")
+    whole = savings_account("Whole Balance Half")
+    goal = @family.goals.create!(name: "Mixed goal", target_amount: 10_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: earmarked, allocated_amount: 2_000)
+      g.goal_accounts.build(account: whole)
+    end
+
+    create_transaction(account: earmarked, amount: -9_000, date: 30.days.ago.to_date)
+    create_transaction(account: whole, amount: -450, date: 30.days.ago.to_date)
+
+    # Only the whole-balance account: 450 in over 90 days => 150/mo. The
+    # earmarked account's 9,000 belongs to nobody's pace.
+    assert_equal 150, goal.pace.to_d
+  end
+
+  test "months_of_runway is nil when pace is not attributable" do
+    account = savings_account("Runway Savings")
+    goal = @family.goals.create!(name: "Runway goal", target_amount: 10_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 1_000)
+    end
+
+    create_transaction(account: account, amount: -900, date: 30.days.ago.to_date)
+
+    assert_nil goal.target_date
+    assert_nil goal.months_of_runway
+  end
+
+  test "a dated goal backed only by an earmark is behind and is told to raise it" do
+    account = savings_account("Deadline Savings")
+    goal = @family.goals.create!(
+      name: "Deadline goal",
+      target_amount: 10_000,
+      target_date: 6.months.from_now.to_date,
+      currency: "USD"
+    ) { |g| g.goal_accounts.build(account: account, allocated_amount: 1_000) }
+
+    # Enough account inflow that the old whole-account pace (3,000/mo) beat the
+    # required 1,500/mo and reported :on_track off money that never reached
+    # this goal's backing.
+    create_transaction(account: account, amount: -9_000, date: 30.days.ago.to_date)
+
+    assert_equal :behind, goal.status
+    assert_equal I18n.t("goals.show.projection.earmarked"), goal.projection_summary
+    assert_match(/raise the earmark/i, goal.status_callout_context)
+  end
+
   test "months_of_runway is nil when goal has a target date" do
     assert_not_nil @goal.target_date
     assert_nil @goal.months_of_runway
@@ -1409,5 +1493,16 @@ class GoalTest < ActiveSupport::TestCase
       sorted = Goal.active_display_sort([ paused, reserve ])
 
       assert_equal [ reserve.id, paused.id ], sorted.map(&:id)
+    end
+
+  private
+    def savings_account(name)
+      Account.create!(
+        family: @family,
+        accountable: Depository.new,
+        name: name,
+        currency: "USD",
+        balance: 10_000
+      )
     end
 end

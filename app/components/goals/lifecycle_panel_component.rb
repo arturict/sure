@@ -98,7 +98,9 @@ class Goals::LifecyclePanelComponent < ApplicationComponent
     goal.status == :on_track ? "var(--color-green-600)" : "var(--color-yellow-600)"
   end
 
-  def show_catch_up? = goal.status == :behind && goal.monthly_target_amount.present?
+  # pace_money is nil for a goal backed only by fixed earmarks; there is no
+  # "current pace" to compare the requirement against, and formatting nil raised.
+  def show_catch_up? = goal.status == :behind && goal.monthly_target_amount.present? && goal.pace_money.present?
 
   def show_projection_legend? = goal.target_date.present?
 

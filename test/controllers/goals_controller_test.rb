@@ -53,6 +53,22 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
     assert_no_match(/Earmarks exceed the account balance/i, response.body)
   end
 
+  # The real user path for the earmark-aware pace: a goal with a deadline whose
+  # backing is a fixed earmark has no pace at all, and the projection card used
+  # to format it unconditionally ("Current pace %{avg}/mo"), which raises on nil.
+  test "show renders a dated goal backed only by an earmark" do
+    account = Account.create!(family: @user.family, accountable: Depository.new, name: "Pinned Savings", currency: "USD", balance: 5_000)
+    goal = @user.family.goals.create!(name: "Pinned", target_amount: 5_000, target_date: 6.months.from_now.to_date, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 1_000)
+    end
+
+    get goal_url(goal)
+
+    assert_response :success
+    assert_match(/only moves when you change the earmark/i, response.body)
+    assert_no_match(/Current pace/i, response.body)
+  end
+
   test "index honors state filter" do
     get goals_url(state: "paused")
     assert_response :success
