@@ -1,9 +1,12 @@
 class MessagesController < ApplicationController
+  include AiComposerOptions
   guard_feature unless: -> { Current.user.ai_enabled? }
 
   before_action :set_chat
 
   def create
+    persist_reasoning_effort!
+
     @message = UserMessage.new(
       chat: @chat,
       content: message_params[:content],

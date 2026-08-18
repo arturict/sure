@@ -213,7 +213,10 @@ class Provider::Anthropic < Provider
     previous_response_id: nil,
     session_id: nil,
     user_identifier: nil,
-    family: nil
+    family: nil,
+    # Accepted for interface parity and ignored: Anthropic expresses thinking
+    # budget as a token count on a different parameter, not as an effort level.
+    reasoning_effort: nil
   )
     with_provider_response do
       chat_config = ChatConfig.new(

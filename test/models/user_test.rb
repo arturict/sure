@@ -1,6 +1,28 @@
 require "test_helper"
 
 class UserTest < ActiveSupport::TestCase
+  test "ai_reasoning_effort round-trips a supported value" do
+    user = users(:family_admin)
+    user.ai_reasoning_effort = "xhigh"
+    user.save!
+
+    assert_equal "xhigh", user.reload.ai_reasoning_effort
+  end
+
+  test "ai_reasoning_effort rejects a value the provider does not accept" do
+    user = users(:family_admin)
+    user.ai_reasoning_effort = "turbo"
+
+    assert_nil user.ai_reasoning_effort
+  end
+
+  test "ai_reasoning_effort clears on blank" do
+    user = users(:family_admin)
+    user.ai_reasoning_effort = "max"
+    user.ai_reasoning_effort = ""
+
+    assert_nil user.ai_reasoning_effort
+  end
   include ActiveJob::TestHelper
 
   def setup

@@ -2,13 +2,14 @@
 
 <div id="chat-form" class="space-y-2">
   <% model = chat && chat.persisted? ? [chat, Message.new] : Chat.new %>
+  <%# Follow-ups default to whatever the conversation has been answered with,
+      so switching model mid-chat sticks instead of snapping back. %>
+  <% selected_model = (chat&.persisted? && chat.messages.last&.ai_model).presence || default_ai_model %>
 
   <%= form_with model: model,
                 class: "flex lg:flex-col gap-2 bg-container px-2 py-1.5 rounded-full lg:rounded-lg shadow-border-xs",
                 data: { chat_target: "form" } do |f| %>
 
-    <%# In the future, this will be a dropdown with different AI models %>
-    <%= f.hidden_field :ai_model, value: default_ai_model %>
 
     <%= f.text_area :content, placeholder: t(".placeholder"), value: message_hint,
                   class: "w-full border-0 focus:ring-0 text-sm resize-none px-1 bg-transparent",
@@ -16,10 +17,35 @@
                   rows: 1 %>
 
     <div class="flex items-center justify-between gap-1">
-      <div class="items-center gap-1 hidden lg:flex">
-        <%# These are disabled for now, but in the future, will all open specific menus with their own context and search %>
-        <% ["plus", "command", "at-sign", "mouse-pointer-click"].each do |icon| %>
-          <%= icon(icon, as_button: true, disabled: true, class: "cursor-not-allowed", title: "Coming soon") %>
+      <div class="flex items-center gap-1">
+        <div class="items-center gap-1 hidden lg:flex">
+          <%# These are disabled for now, but in the future, will all open specific menus with their own context and search %>
+          <% ["plus", "command", "at-sign", "mouse-pointer-click"].each do |icon| %>
+            <%= icon(icon, as_button: true, disabled: true, class: "cursor-not-allowed", title: "Coming soon") %>
+          <% end %>
+        </div>
+
+        <%# Model and thinking depth sit with the prompt rather than in settings,
+            because both are per-message decisions. Both selections are sticky:
+            the model rides on the message, the effort on the user. %>
+        <%# selected: is passed explicitly because Chat has no ai_model
+            attribute for the select helper to read on the new-chat form. %>
+        <%= f.select :ai_model,
+                     options_for_select(Chat.selectable_models, selected_model),
+                     { selected: selected_model },
+                     class: composer_select_classes,
+                     title: t(".model_title") %>
+
+        <% if Provider::Openai.supports_reasoning_effort?(selected_model) %>
+          <%= select_tag :reasoning_effort,
+                         options_for_select(
+                           [ [ t(".effort_default"), "" ],
+                             *Provider::Openai::REASONING_EFFORTS.map { |e| [ t(".effort_#{e}"), e ] } ],
+                           Current.user.ai_reasoning_effort
+                         ),
+                         class: composer_select_classes,
+                         title: t(".effort_title"),
+                         disabled: ENV["OPENAI_REASONING_EFFORT"].present? %>
         <% end %>
       </div>
 

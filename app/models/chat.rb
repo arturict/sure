@@ -51,6 +51,29 @@ class Chat < ApplicationRecord
       prompt.first(80)
     end
 
+    # Offered in the composer when the install has not configured its own list.
+    # The configured model is always added on top of these, so a custom or
+    # self-hosted endpoint never ends up with a dropdown that excludes it.
+    SUGGESTED_MODELS = %w[gpt-5.6-luna gpt-5.6-terra gpt-5.6-sol].freeze
+
+    # [[label, id], ...] for the composer's model dropdown, default first.
+    def selectable_models
+      configured = Setting.llm_chat_models.to_s.split(",").map(&:strip).reject(&:blank?)
+      ids = ([ default_model ] + (configured.presence || SUGGESTED_MODELS)).compact_blank.uniq
+      ids.map { |id| [ humanize_model(id), id ] }
+    end
+
+    # "gpt-5.6-luna" reads as noise in a dropdown; "5.6 Luna" is what the model
+    # is actually called. The vendor prefix is dropped and the remainder title
+    # cased, leaving version numbers alone. Anything that does not look like a
+    # vendor-prefixed id is shown verbatim rather than mangled.
+    def humanize_model(id)
+      rest = id.to_s.sub(/\Agpt-/, "")
+      return id.to_s if rest.blank? || rest == id.to_s && !id.to_s.match?(/\A[a-z]\d/)
+
+      rest.split(/[-_]/).map { |part| part.match?(/\A[\d.]+\z/) ? part : part.capitalize }.join(" ")
+    end
+
     # Returns the default AI model to use for chats.
     # Resolved from the configured llm_provider so installs that swap providers
     # don't have to manually update every chat default. Falls through to a

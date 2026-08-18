@@ -1,6 +1,40 @@
 require "test_helper"
 
 class ChatTest < ActiveSupport::TestCase
+  test "humanize_model drops the vendor prefix and leaves version numbers alone" do
+    assert_equal "5.6 Luna", Chat.humanize_model("gpt-5.6-luna")
+    assert_equal "5.6 Sol", Chat.humanize_model("gpt-5.6-sol")
+    assert_equal "4.1", Chat.humanize_model("gpt-4.1")
+  end
+
+  test "humanize_model leaves ids it does not recognize verbatim" do
+    assert_equal "my-local/model:7b", Chat.humanize_model("my-local/model:7b")
+  end
+
+  test "selectable_models always offers the configured model first" do
+    Setting.stubs(:llm_chat_models).returns("")
+    Chat.stubs(:default_model).returns("gpt-5.6-terra")
+
+    models = Chat.selectable_models
+
+    assert_equal [ "5.6 Terra", "gpt-5.6-terra" ], models.first
+    assert_equal models.map(&:last).uniq, models.map(&:last)
+    assert_includes models.map(&:last), "gpt-5.6-luna"
+  end
+
+  test "selectable_models honours a configured list" do
+    Setting.stubs(:llm_chat_models).returns("gpt-5.6-luna, gpt-5.6-sol")
+    Chat.stubs(:default_model).returns("gpt-5.6-luna")
+
+    assert_equal %w[gpt-5.6-luna gpt-5.6-sol], Chat.selectable_models.map(&:last)
+  end
+
+  test "selectable_models keeps a custom endpoint's model even when it is not suggested" do
+    Setting.stubs(:llm_chat_models).returns("")
+    Chat.stubs(:default_model).returns("qwen3-coder:30b")
+
+    assert_equal "qwen3-coder:30b", Chat.selectable_models.first.last
+  end
   setup do
     @user = users(:family_admin)
     @assistant = mock

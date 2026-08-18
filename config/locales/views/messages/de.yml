@@ -4,3 +4,12 @@ de:
     chat_form:
       placeholder: "Fragen Sie irgendetwas ..."
       disclaimer: "KI-Antworten dienen nur zur Information. Keine Finanzberatung!"
+      model_title: "Modell"
+      effort_title: "Denktiefe"
+      effort_default: "Standard"
+      effort_none: "Ohne Denken"
+      effort_low: "Niedrig"
+      effort_medium: "Mittel"
+      effort_high: "Hoch"
+      effort_xhigh: "Sehr hoch"
+      effort_max: "Maximal"

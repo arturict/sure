@@ -4,3 +4,12 @@ en:
     chat_form:
       placeholder: "Ask anything ..."
       disclaimer: "AI responses are informational only. Not financial advice!"
+      model_title: "Model"
+      effort_title: "Thinking depth"
+      effort_default: "Default"
+      effort_none: "No thinking"
+      effort_low: "Low"
+      effort_medium: "Medium"
+      effort_high: "High"
+      effort_xhigh: "Extra high"
+      effort_max: "Max"
