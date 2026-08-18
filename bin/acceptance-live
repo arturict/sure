@@ -1,0 +1,530 @@
+#!/usr/bin/env bash
+#
+# acceptance-live -- drive the live Sure instance in a real Chrome and check
+# the four fork changes against real data.
+#
+# READ-ONLY. This tool navigates and asserts. It never creates, edits, deletes,
+# submits a form other than the login form, or clicks anything that writes.
+# In particular it reads the budget picker's markup instead of clicking a
+# future month, because that click is what bootstraps a Budget row plus one
+# BudgetCategory per category. The one write it cannot avoid is upstream's own:
+# GET /budgets bootstraps the CURRENT month's budget for any visitor, exactly
+# as opening the page in a browser does. No future month is ever requested.
+#
+# The login password is read out of Bitwarden into a shell variable and handed
+# straight to the browser. It is never echoed, logged, written to disk, or
+# passed on any command line -- it reaches `jq` and `curl` through pipes only.
+# Page text that is echoed back (KPI copy, failure context) has its digits
+# stripped, so a pasted transcript carries no balances.
+#
+# Usage:
+#   export BW_SESSION=$(bw unlock --raw)
+#   bin/acceptance-live
+#
+# Requires: docker, curl, jq, and the Bitwarden CLI.
+
+set -euo pipefail
+# Defensive against `bash -x bin/acceptance-live`: xtrace would print the
+# password as it is piped into jq. `set +x` wins over the invocation flag.
+set +x
+
+BASE_URL="${SURE_BASE_URL:-https://finance.artur.casa}"
+BW_BIN="${BW_BIN:-/home/artur/.nvm/versions/node/v24.18.0/bin/bw}"
+CHROME_IMAGE="${CHROME_IMAGE:-selenium/standalone-chrome:latest}"
+CONTAINER_NAME="sure-acceptance-chrome-$$"
+# tmp/ is gitignored wholesale, so the screenshots -- which are full-page
+# pictures of real balances -- cannot be committed by accident.
+SHOT_DIR="${SHOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/tmp/acceptance-live}"
+HUB=""
+SESSION_ID=""
+PASSES=0
+FAILURES=0
+SKIPS=0
+
+log()  { printf '%s\n' "$*"; }
+ok()   { PASSES=$((PASSES + 1)); printf 'PASS  %s\n' "$*"; }
+bad()  { FAILURES=$((FAILURES + 1)); printf 'FAIL  %s\n' "$*"; }
+skip() { SKIPS=$((SKIPS + 1)); printf 'SKIP  %s\n' "$*"; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# Anything read off the page goes through this before it is printed. Balances,
+# percentages and dates all reduce to "#", which keeps a pasted run harmless
+# while still showing the shape of the copy that failed.
+redact() { printf '%s' "$1" | sed 's/[0-9]/#/g'; }
+
+require_tools() {
+  local tool
+  for tool in docker curl jq base64 sed; do
+    command -v "$tool" >/dev/null 2>&1 || die "$tool is required but not on PATH"
+  done
+  [ -x "$BW_BIN" ] || command -v "$BW_BIN" >/dev/null 2>&1 || die "Bitwarden CLI not found at $BW_BIN (override with BW_BIN=...)"
+}
+
+# Refuses to unlock anything itself: an agent or a script prompting for a
+# master password is exactly the habit this tool should not teach.
+require_unlocked_vault() {
+  local status_json status
+  status_json="$("$BW_BIN" status 2>/dev/null || true)"
+  status="$(printf '%s' "$status_json" | jq -r '.status // "unknown"' 2>/dev/null || printf 'unknown')"
+
+  case "$status" in
+    unlocked)
+      return 0
+      ;;
+    locked)
+      # Quoted heredoc: the unlock command has to reach the user verbatim,
+      # command substitution and all.
+      cat >&2 <<'LOCKED'
+error: the Bitwarden vault is locked, and this script will not unlock it.
+
+Unlock it yourself first, then re-run:
+
+    export BW_SESSION=$(bw unlock --raw)
+    bin/acceptance-live
+
+LOCKED
+      exit 1
+      ;;
+    unauthenticated)
+      cat >&2 <<'UNAUTHENTICATED'
+error: the Bitwarden CLI is not logged in, and this script will not log it in.
+
+Log in and unlock, then re-run:
+
+    bw login
+    export BW_SESSION=$(bw unlock --raw)
+    bin/acceptance-live
+
+UNAUTHENTICATED
+      exit 1
+      ;;
+    *)
+      die "unexpected 'bw status' state: $status"
+      ;;
+  esac
+}
+
+# Looks the entry up by the URI it is saved against rather than by name, so
+# renaming the item in the vault does not break this script.
+load_credentials() {
+  local matches count names
+
+  if ! matches="$("$BW_BIN" list items --url "$BASE_URL" 2>/dev/null | jq -c '[.[] | {id, name, username: .login.username}]')"; then
+    die "could not read the vault (is BW_SESSION exported?)"
+  fi
+
+  count="$(printf '%s' "$matches" | jq 'length')"
+  if [ "$count" -eq 0 ]; then
+    die "no Bitwarden item has a URI matching $BASE_URL -- add the URI to the Sure login item"
+  fi
+  if [ "$count" -gt 1 ]; then
+    names="$(printf '%s' "$matches" | jq -r '.[] | "  - " + .name')"
+    printf 'error: %s Bitwarden items match the URI %s:\n%s\n' "$count" "$BASE_URL" "$names" >&2
+    die "keep the URI on exactly one item so this script cannot pick the wrong login"
+  fi
+
+  ITEM_ID="$(printf '%s' "$matches" | jq -r '.[0].id')"
+  USERNAME="$(printf '%s' "$matches" | jq -r '.[0].username // empty')"
+  if [ -z "$USERNAME" ] || [ "$USERNAME" = "null" ]; then
+    die "the matching vault item has no username"
+  fi
+
+  # Fetched on its own so the password never sits in the same variable as the
+  # data this script prints from.
+  PASSWORD="$("$BW_BIN" get password "$ITEM_ID" 2>/dev/null)" || die "could not read the password from the vault"
+  [ -n "$PASSWORD" ] || die "the matching vault item has no password"
+}
+
+cleanup() {
+  if [ -n "$SESSION_ID" ]; then
+    curl -sS -X DELETE "$HUB/session/$SESSION_ID" >/dev/null 2>&1 || true
+  fi
+  docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+}
+
+start_browser() {
+  local port ready
+  log "Starting Chrome ($CHROME_IMAGE)…"
+  docker run -d --rm --name "$CONTAINER_NAME" --shm-size=2g -p 127.0.0.1::4444 "$CHROME_IMAGE" >/dev/null
+
+  port="$(docker port "$CONTAINER_NAME" 4444/tcp | head -n1 | sed 's/.*://')"
+  [ -n "$port" ] || die "could not find the published WebDriver port"
+  HUB="http://127.0.0.1:$port"
+
+  for _ in $(seq 1 60); do
+    ready="$(curl -sS "$HUB/status" 2>/dev/null | jq -r '.value.ready // false' 2>/dev/null || printf 'false')"
+    [ "$ready" = "true" ] && return 0
+    sleep 1
+  done
+  die "Chrome did not become ready within 60s"
+}
+
+# One entry point for every WebDriver call. Request bodies arrive as a function
+# argument and leave through a pipe: a shell function's arguments are private
+# to this process, while curl's argv is world-readable in /proc.
+wd() {
+  local method="$1" path="$2" body="${3:-}" out err
+  if [ -n "$body" ]; then
+    out="$(printf '%s' "$body" | curl -sS -X "$method" -H 'Content-Type: application/json' --data-binary @- "$HUB$path")"
+  else
+    out="$(curl -sS -X "$method" "$HUB$path")"
+  fi
+
+  err="$(printf '%s' "$out" | jq -r 'if type == "object" then (.value.error // empty) else empty end' 2>/dev/null || true)"
+  if [ -n "$err" ]; then
+    # The path, never the body: the body may be the password.
+    printf 'error: webdriver %s %s failed: %s\n' "$method" "$path" "$err" >&2
+    return 1
+  fi
+
+  printf '%s' "$out"
+}
+
+open_session() {
+  local caps
+  caps='{"capabilities":{"alwaysMatch":{"browserName":"chrome","goog:chromeOptions":{"args":["--window-size=1400,1400","--no-sandbox","--disable-dev-shm-usage"]}}}}'
+  SESSION_ID="$(wd POST /session "$caps" | jq -r '.value.sessionId')"
+  if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "null" ]; then
+    die "could not start a Chrome session"
+  fi
+  wd POST "/session/$SESSION_ID/timeouts" '{"implicit":10000}' >/dev/null
+}
+
+goto() {
+  wd POST "/session/$SESSION_ID/url" "$(printf '%s' "$1" | jq -Rs '{url: .}')" >/dev/null
+}
+
+find_element() {
+  # A findElement response is {"value": {"<web element identifier>": "<id>"}}
+  # with exactly one entry. Read it positionally: hardcoding the identifier
+  # constant (element-6066-11e4-a52e-4f735466cecf) buys nothing and one wrong
+  # character silently yields an empty element id and a "no such element" on
+  # the NEXT call instead.
+  wd POST "/session/$SESSION_ID/element" "$(printf '%s' "$1" | jq -Rs '{using: "css selector", value: .}')" \
+    | jq -r '(.value // {}) | to_entries | (.[0].value // empty)'
+}
+
+# Reads the text to type from stdin, so a secret never becomes an argument.
+type_into() {
+  wd POST "/session/$SESSION_ID/element/$1/value" "$(jq -Rs '{text: .}')" >/dev/null
+}
+
+click_element() {
+  wd POST "/session/$SESSION_ID/element/$1/click" '{}' >/dev/null
+}
+
+run_js() {
+  wd POST "/session/$SESSION_ID/execute/sync" "$(printf '%s' "$1" | jq -Rs '{script: ., args: []}')" | jq -c '.value'
+}
+
+wait_for_js() {
+  local script="$1"
+  for _ in $(seq 1 40); do
+    [ "$(run_js "$script")" = "true" ] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+screenshot() {
+  mkdir -p "$SHOT_DIR"
+  wd GET "/session/$SESSION_ID/screenshot" | jq -r '.value' | base64 -d > "$SHOT_DIR/$1.png"
+  log "      screenshot: $SHOT_DIR/$1.png"
+}
+
+sign_in() {
+  local email_field password_field submit_button
+  goto "$BASE_URL/sessions/new"
+
+  email_field="$(find_element "input[name='email']")"
+  [ -n "$email_field" ] || die "no email field on $BASE_URL/sessions/new -- is local login disabled?"
+  printf '%s' "$USERNAME" | type_into "$email_field"
+
+  password_field="$(find_element "input[name='password']")"
+  [ -n "$password_field" ] || die "no password field on the sign-in form"
+  printf '%s' "$PASSWORD" | type_into "$password_field"
+  # Gone from this process the moment the browser has it.
+  PASSWORD=""
+  unset PASSWORD
+
+  submit_button="$(find_element "form[action='/sessions'] [type='submit']")"
+  [ -n "$submit_button" ] || die "no submit button on the sign-in form"
+  click_element "$submit_button"
+
+  if ! wait_for_js 'return document.querySelector("#user-menu") !== null;'; then
+    die "sign-in did not complete (wrong password, or a second factor is waiting). Nothing was printed."
+  fi
+  log "Signed in."
+}
+
+# 1/4 -- a budget can be created for a future month. Asserted as an affordance:
+# following the link is what writes.
+check_future_budget() {
+  local picker this_year target_param target_year months forward
+  goto "$BASE_URL/budgets"
+
+  if ! picker="$(run_js "$(cat <<'JS'
+const picker = document.querySelector("#budget_picker");
+if (!picker) return null;
+return {
+  months: Array.from(picker.querySelectorAll('a[href*="/budgets/"]')).map((a) => a.getAttribute("href")),
+  forward: Array.from(picker.querySelectorAll('a[href*="year="]')).map((a) => a.getAttribute("href")),
+};
+JS
+)")"; then
+    bad "budget picker: the page could not be read"
+    return
+  fi
+
+  if [ "$picker" = "null" ] || [ -z "$picker" ]; then
+    bad "budget picker: not rendered on $BASE_URL/budgets"
+    return
+  fi
+
+  # LC_ALL=C because the picker's month params come from Ruby's strftime, which
+  # is always English regardless of the shell's locale.
+  this_year="$(LC_ALL=C date +%Y)"
+  target_param="$(LC_ALL=C date -d "$(LC_ALL=C date +%Y-%m-01) +1 month" +%b-%Y | tr '[:upper:]' '[:lower:]')"
+  target_year="$(LC_ALL=C date -d "$(LC_ALL=C date +%Y-%m-01) +1 month" +%Y)"
+
+  if [ "$target_year" = "$this_year" ]; then
+    months="$(printf '%s' "$picker" | jq -r --arg p "/budgets/$target_param" '[.months[] | select(endswith($p))] | length')"
+    if [ "$months" -ge 1 ]; then
+      ok "budget picker offers next month ($target_param) as a link, so it can be bootstrapped"
+    else
+      bad "budget picker renders next month ($target_param) as inert -- the future-month window has regressed"
+    fi
+  else
+    # Next month is in the next year, so the reachable proof is the forward
+    # chevron rather than a month cell in the grid on screen.
+    forward="$(printf '%s' "$picker" | jq -r --arg y "year=$target_year" '[.forward[] | select(contains($y))] | length')"
+    if [ "$forward" -ge 1 ]; then
+      ok "budget picker can walk forward into $target_year"
+    else
+      bad "budget picker cannot reach $target_year -- the future-month window has regressed"
+    fi
+  fi
+}
+
+# 2/4 -- no goal prints a pace borrowed from an account it shares. The live
+# shape is one savings account backing eleven pots, which is exactly what made
+# the same figure appear on every card.
+check_goal_pace() {
+  local goals cards duplicates
+  goto "$BASE_URL/goals"
+
+  if ! goals="$(run_js "$(cat <<'JS'
+const cards = Array.from(document.querySelectorAll("[data-goal-name]"));
+return {
+  cards: cards.length,
+  paces: cards
+    .map((card) => {
+      const match = card.textContent.match(/(\S+)\s*\/mo/);
+      return match ? match[1] : null;
+    })
+    .filter((pace) => pace !== null),
+};
+JS
+)")"; then
+    bad "goals page: could not be read"
+    return
+  fi
+
+  cards="$(printf '%s' "$goals" | jq -r '.cards // 0')"
+  if [ "$cards" -eq 0 ]; then
+    bad "goals page rendered no goal cards"
+    return
+  fi
+
+  # The count of repeated values, never the values: a repeated amount is still
+  # an amount.
+  duplicates="$(printf '%s' "$goals" | jq -r '[.paces | group_by(.)[] | select(length > 1)] | length')"
+  if [ "$duplicates" -eq 0 ]; then
+    ok "$cards goal cards, no pace figure repeated across them"
+  else
+    bad "pace figures repeat across goal cards (repeated distinct values: $duplicates) -- shared-account pace is leaking again"
+  fi
+}
+
+# 3/4 -- the goals KPI tile says something for a family whose goals have no
+# target dates. It used to read a literal "0 of 0".
+check_goals_kpi() {
+  local tile text
+  # Navigates itself rather than inheriting whatever page the previous check
+  # left behind.
+  goto "$BASE_URL/goals"
+
+  if ! tile="$(run_js "$(cat <<'JS'
+const label = Array.from(document.querySelectorAll("p")).find((p) => /goals funded/i.test(p.textContent));
+if (!label || !label.parentElement) return null;
+return (label.parentElement.innerText || label.parentElement.textContent).replace(/\s+/g, " ").trim();
+JS
+)")"; then
+    bad "goals KPI: the page could not be read"
+    return
+  fi
+
+  if [ "$tile" = "null" ] || [ -z "$tile" ]; then
+    bad "goals KPI: no 'Goals funded' tile on the strip"
+    return
+  fi
+
+  text="$(printf '%s' "$tile" | jq -r '.')"
+  if printf '%s' "$text" | grep -q "0 of 0"; then
+    bad "goals KPI tile still reads '0 of 0': $(redact "$text")"
+  elif printf '%s' "$text" | grep -Eq '[0-9]+%|Fully funded'; then
+    ok "goals KPI tile reports funded coverage: $(redact "$text")"
+  else
+    bad "goals KPI tile carries no coverage headline: $(redact "$text")"
+  fi
+}
+
+# 4/4 -- the expanded cashflow Sankey draws subcategories, in their own column,
+# while the dashboard tile keeps the parents-only trunk.
+check_cashflow_sankey() {
+  local payloads tile_subs expanded_subs geometry drawn parent_columns misplaced
+  goto "$BASE_URL/"
+
+  if ! wait_for_js 'return document.querySelectorAll("[data-controller~=\"sankey-chart\"]").length >= 2;'; then
+    bad "cashflow sankey: the dashboard did not render both chart copies"
+    return
+  fi
+
+  if ! payloads="$(run_js "$(cat <<'JS'
+const charts = Array.from(document.querySelectorAll('[data-controller~="sankey-chart"]'));
+const ids = (chart) => {
+  try {
+    return (JSON.parse(chart.getAttribute("data-sankey-chart-data-value") || "{}").nodes || []).map((n) => n.id);
+  } catch (error) {
+    return [];
+  }
+};
+return { tile: ids(charts[0]), expanded: ids(charts[1]) };
+JS
+)")"; then
+    bad "cashflow sankey: the chart payloads could not be read"
+    return
+  fi
+
+  tile_subs="$(printf '%s' "$payloads" | jq -r '[.tile[] | select(contains("_sub_"))] | length')"
+  expanded_subs="$(printf '%s' "$payloads" | jq -r '[.expanded[] | select(startswith("expense_sub_"))] | length')"
+
+  if [ "$tile_subs" -eq 0 ]; then
+    ok "dashboard tile keeps the parents-only trunk"
+  else
+    bad "the dashboard tile carries subcategory nodes (count: $tile_subs) -- the tile/dialog split has regressed"
+  fi
+
+  if [ "$expanded_subs" -eq 0 ]; then
+    skip "expanded sankey: no parent/child category pair had spending in the selected period, so there is nothing to draw"
+    return
+  fi
+
+  # Clicked from JavaScript on purpose: the maximise button is revealed by a
+  # CSS :hover on the section, which a synthetic pointer sequence would have to
+  # reproduce blind. The hover-then-click path is covered by
+  # test/system/cashflow_sankey_test.rb against seeded data; what only the live
+  # instance can answer is what d3 does with real categories. Matched on the
+  # Stimulus action rather than the aria-label, because the collapse toggle is
+  # the section's first labelled button.
+  if [ "$(run_js "$(cat <<'JS'
+const button = document.querySelector('section[data-section-key="cashflow_sankey"] button[data-action*="cashflow-expand#open"]');
+if (!button) return false;
+button.click();
+return true;
+JS
+)")" != "true" ]; then
+    bad "expanded sankey: the maximise control is missing"
+    return
+  fi
+
+  if ! wait_for_js 'return document.querySelector("#cashflow-expanded-dialog")?.open === true;'; then
+    bad "expanded sankey: the maximise dialog did not open"
+    return
+  fi
+
+  if ! geometry="$(run_js "$(cat <<'JS'
+const chart = document.querySelectorAll("[data-sankey-chart-target='chart']")[1];
+if (!chart) return null;
+const host = chart.closest("[data-sankey-chart-data-value]");
+let ids = [];
+try {
+  ids = (JSON.parse(host.getAttribute("data-sankey-chart-data-value") || "{}").nodes || []).map((n) => n.id);
+} catch (error) {
+  return null;
+}
+// Node groups are bound to the payload's nodes in order, so the i-th group is
+// the i-th node. getBBox().x is the drawn column, whatever the node shape.
+const groups = Array.from(chart.querySelectorAll("svg > g > g"));
+if (!groups.length) return null;
+return groups
+  .map((group, index) => {
+    const shape = group.querySelector("path");
+    if (!shape || !ids[index]) return null;
+    return { id: ids[index], x: Math.round(shape.getBBox().x) };
+  })
+  .filter(Boolean);
+JS
+)")"; then
+    bad "expanded sankey: the drawn chart could not be read"
+    return
+  fi
+
+  if [ "$geometry" = "null" ] || [ -z "$geometry" ]; then
+    bad "expanded sankey: the chart did not draw"
+    return
+  fi
+
+  # Everything at x=0 means the chart was measured while hidden, which is what
+  # a collapsed dashboard widget looks like -- and it would otherwise satisfy
+  # both assertions below vacuously.
+  drawn="$(printf '%s' "$geometry" | jq -r '[.[].x] | max')"
+  if [ "$drawn" -le 0 ]; then
+    bad "expanded sankey: every node drew at x=0 (is the cashflow widget collapsed?)"
+    return
+  fi
+
+  parent_columns="$(printf '%s' "$geometry" | jq -r '[.[] | select(.id | startswith("expense_") and (startswith("expense_sub_") | not)) | .x] | unique | length')"
+  misplaced="$(printf '%s' "$geometry" | jq -r '
+    ([.[] | select(.id | startswith("expense_") and (startswith("expense_sub_") | not)) | .x] | max) as $parent
+    | [.[] | select(.id | startswith("expense_sub_")) | select(.x <= $parent)] | length')"
+
+  if [ "$parent_columns" -eq 1 ] && [ "$misplaced" -eq 0 ]; then
+    ok "expanded sankey draws subcategories right of a single expense-parent column (subcategories: $expanded_subs)"
+  elif [ "$parent_columns" -ne 1 ]; then
+    bad "expanded sankey spreads expense parents over $parent_columns columns -- the column pinning has regressed"
+  else
+    bad "expanded sankey draws subcategories inside the parent column (count: $misplaced)"
+  fi
+}
+
+main() {
+  require_tools
+  require_unlocked_vault
+  load_credentials
+
+  trap cleanup EXIT
+  start_browser
+  open_session
+
+  log "Checking $BASE_URL (read-only)…"
+  sign_in
+
+  check_cashflow_sankey
+  # Reload before the screenshot: the sankey check leaves the maximise dialog
+  # open over the dashboard.
+  goto "$BASE_URL/"
+  screenshot "dashboard-$(date -u +%Y%m%dT%H%M%SZ)"
+
+  check_goal_pace
+  check_goals_kpi
+  screenshot "goals-$(date -u +%Y%m%dT%H%M%SZ)"
+
+  check_future_budget
+
+  log ""
+  log "$PASSES passed, $FAILURES failed, $SKIPS skipped."
+  [ "$FAILURES" -eq 0 ]
+}
+
+main "$@"
