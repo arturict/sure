@@ -280,14 +280,19 @@ class GoalsController < ApplicationController
       # validated against the goal's linked accounts, not against the family:
       # adding a EUR target to a CHF sum would invent money.
       funded_goals = active_goals.select { |g| g.currency == currency }
+      # Counted so the tile can say which goals it left out. Silently dropping
+      # them made the headline contradict the grid right below it: a family
+      # whose only goals are EUR read "No active goals" above two active cards.
+      other_currency = active_goals.size - funded_goals.size
       total_target = funded_goals.sum { |g| g.target_amount.to_d }
       # target_amount - remaining_amount rather than current_balance:
       # remaining_amount is already clamped at 0, so this is min(balance,
       # target) and one over-funded goal cannot mask an unfunded one.
       covered = funded_goals.sum { |g| g.target_amount.to_d - g.remaining_amount.to_d }
-      # nil (not 0) when there is nothing to divide by — the strip still renders
-      # for a family whose goals are all completed or archived, and a bare
-      # division there took the whole page down.
+      # nil (not 0) when there is nothing to divide by — no active goals at all,
+      # or none of them in the primary currency. The strip still renders in both
+      # cases (@counts["all"] is non-zero), and a bare division took the whole
+      # page down.
       funded_percent = if total_target.positive?
         covered >= total_target ? 100 : ((covered / total_target) * 100).floor.clamp(0, 99)
       end
@@ -323,7 +328,8 @@ class GoalsController < ApplicationController
         active_total: active_goals.size,
         funded_percent: funded_percent,
         funded_money: Money.new(covered, currency),
-        funded_target_money: Money.new(total_target, currency)
+        funded_target_money: Money.new(total_target, currency),
+        other_currency_count: other_currency
       }
     end
 

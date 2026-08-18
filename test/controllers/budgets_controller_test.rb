@@ -66,18 +66,39 @@ class BudgetsControllerTest < ActionDispatch::IntegrationTest
 
   # `suggested_daily_spending` divides what is left by the days left in the
   # period, which is meaningless for a month that has not started. It is gated
-  # on Budget#current?; this pins that the gate survives into the rendered page.
-  test "future budget categories page omits suggested daily spending" do
+  # on Budget#current?; this pins that the gate survives into budgets#show, the
+  # only page that reaches budget_categories/_budget_category and so the only
+  # one that can print the line at all.
+  test "future budget page omits suggested daily spending" do
     travel_to Date.new(2026, 8, 18) do
       get budget_path("nov-2026")
       budget = Budget.find_by!(family: @family, start_date: Date.new(2026, 11, 1))
       budget.update!(budgeted_spending: 5_000, expected_income: 7_000)
       budget.budget_categories.each { |bc| bc.update!(budgeted_spending: 100) }
 
-      get budget_budget_categories_path(budget)
+      get budget_path("nov-2026")
 
       assert_response :success
       assert_no_match(/suggested per day/i, response.body)
+    end
+  end
+
+  # Positive control for the assertion above. Without it, renaming the partial
+  # or dropping the line from the card would leave the negative assertion true
+  # for the wrong reason and the gate unguarded.
+  test "current budget page shows suggested daily spending" do
+    travel_to Date.new(2026, 8, 18) do
+      get budget_path("aug-2026")
+      budget = Budget.find_by!(family: @family, start_date: Date.new(2026, 8, 1))
+      budget.update!(budgeted_spending: 5_000, expected_income: 7_000)
+      # Large enough that fixture spending cannot exhaust any category, so
+      # available_to_spend stays positive and the line is expected on merit.
+      budget.budget_categories.each { |bc| bc.update!(budgeted_spending: 100_000) }
+
+      get budget_path("aug-2026")
+
+      assert_response :success
+      assert_match(/suggested per day/i, response.body)
     end
   end
 

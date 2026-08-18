@@ -204,8 +204,10 @@ export default class extends Controller {
     const margin = this.constructor.EXTENT_MARGIN;
     // Pin columns by node id. d3's default `justify` alignment drags every
     // childless parent into the leaf column as soon as any parent gains a
-    // subcategory, mixing parents and children in one column.
-    const columns = sankeyColumnsById(nodes);
+    // subcategory, mixing parents and children in one column. The links go in
+    // too: they are what tells a subcategory hanging off its parent apart from
+    // one wired straight to cash flow, which occupies no column of its own.
+    const columns = sankeyColumnsById(nodes, links);
     const sankeyGenerator = sankey()
       .nodeWidth(this.nodeWidthValue)
       .nodePadding(nodePadding)

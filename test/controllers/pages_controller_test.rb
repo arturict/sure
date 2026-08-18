@@ -158,6 +158,34 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     assert_equal 150.0, tile_parent.fetch("value")
   end
 
+  # The column pinning in utils/sankey_columns.mjs demotes a subcategory that is
+  # wired straight to cash flow back to its parent's column, because such a node
+  # adds no depth and claiming a column d3 never creates makes d3 clamp two
+  # columns onto each other. This pins the payload shape that rule depends on.
+  test "expanded chart wires an opposite-direction subcategory straight to cash flow" do
+    parent_category = @family.categories.create!(name: "Shopping", color: "#FF5733")
+    subcategory = @family.categories.create!(name: "Refunds", parent: parent_category, color: "#33FF57")
+
+    account = @family.accounts.first
+    create_transaction(account: account, name: "General shopping", amount: 300, category: parent_category)
+    create_transaction(account: account, name: "Returned coat", amount: 20, category: subcategory)
+    # Refunds nets to income while Shopping as a whole still nets to expense.
+    create_transaction(account: account, name: "Refund", amount: -80, category: subcategory)
+
+    get root_path
+
+    assert_response :ok
+    dialog = JSON.parse(css_select("[data-controller='sankey-chart']").last["data-sankey-chart-data-value"])
+    ids = dialog.fetch("nodes").map { |node| node.fetch("id") }
+
+    assert_includes ids, "expense_#{parent_category.id}"
+    assert_includes ids, "income_sub_#{subcategory.id}"
+    assert dialog.fetch("links").any? { |link|
+      link["source"] == ids.index("income_sub_#{subcategory.id}") &&
+        link["target"] == ids.index("cash_flow_node")
+    }, "expected the opposite-direction subcategory to link straight to cash flow"
+  end
+
   test "dashboard renders money flow widget" do
     get root_path
 
