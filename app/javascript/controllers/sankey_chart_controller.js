@@ -2,6 +2,7 @@ import { Controller } from "@hotwired/stimulus";
 import * as d3 from "d3";
 import { sankey } from "d3-sankey";
 import { CHART_TOOLTIP_CLASSES } from "utils/chart_tooltip";
+import { sankeyColumnsById } from "utils/sankey_columns";
 import { sankeyNodeHasChildren, zoomSankeyData } from "utils/sankey_zoom";
 import {
   buildCategoryTransactionsUrl,
@@ -201,9 +202,14 @@ export default class extends Controller {
 
   #generateSankeyData(nodes, links, width, height, nodePadding) {
     const margin = this.constructor.EXTENT_MARGIN;
+    // Pin columns by node id. d3's default `justify` alignment drags every
+    // childless parent into the leaf column as soon as any parent gains a
+    // subcategory, mixing parents and children in one column.
+    const columns = sankeyColumnsById(nodes);
     const sankeyGenerator = sankey()
       .nodeWidth(this.nodeWidthValue)
       .nodePadding(nodePadding)
+      .nodeAlign((node) => columns.get(node.id) ?? node.depth)
       .extent([
         [margin, margin],
         [width - margin, height - margin],
