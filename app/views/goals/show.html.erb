@@ -178,7 +178,7 @@
           </div>
         <% end %>
       </div>
-    <% elsif @goal.current_balance.to_d.zero? && @goal.pace.to_d.zero? %>
+    <% elsif @goal.current_balance.to_d.zero? && (@goal.pace.nil? || @goal.pace.zero?) %>
       <%# No movement yet on the linked account: render an inline "make your first transfer"
           CTA card instead of a flat-at-$0 chart that looks broken. %>
       <div class="bg-container rounded-xl shadow-border-xs p-5 flex flex-col items-center justify-center text-center">
@@ -204,7 +204,10 @@
           <div class="min-w-0">
             <h2 class="text-sm font-medium text-primary"><%= t(".projection.heading") %></h2>
             <p class="text-xs text-secondary mt-0.5"><%= sanitize @goal.projection_summary %></p>
-            <% if @goal.status == :behind && @goal.monthly_target_amount %>
+            <%# pace_money is nil for a goal backed only by fixed earmarks; there
+                is no "current pace" to compare the requirement against, and
+                formatting nil raised here. %>
+            <% if @goal.status == :behind && @goal.monthly_target_amount && @goal.pace_money %>
               <p class="text-xs text-secondary mt-0.5 tabular-nums privacy-sensitive">
                 <%= t("goals.show.catch_up.body", avg: @goal.pace_money.format(precision: 0), required: Money.new(@goal.monthly_target_amount, @goal.currency).format(precision: 0)) %>
               </p>

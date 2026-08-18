@@ -202,17 +202,23 @@ class Goal < ApplicationRecord
   # goes up, status flips off "behind". Excludes user-flagged-excluded
   # entries. Entry amount sign convention in Sure: inflow is negative.
   #
-  # NOTE: pace is whole-account inflow by design in this phase, even for an
-  # earmarked goal whose current_balance is only a slice — so runway/status
-  # mix a whole-account numerator with an earmark-scoped balance. Earmark-aware
-  # pace is a deliberate follow-up; don't "fix" the basis without that work.
+  # Counts ONLY the accounts this goal absorbs the remainder of. A fixed
+  # earmark pins the goal's backing to goal_accounts.allocated_amount, which
+  # nothing but a form edit ever writes — money landing in the account does not
+  # move it. Averaging that account's flow anyway made every goal earmarked
+  # against one shared savings account print the same figure (11 pots, one
+  # "-$890/mo avg"), and projection_end_amount compounded it into growth the
+  # ring structurally cannot show. nil means "not attributable": callers must
+  # drop the figure rather than render a zero, which would read as "nothing
+  # arrived" instead of "this cannot be measured".
   def pace
     return @pace if defined?(@pace)
 
-    @pace = if linked_accounts.empty?
-      0
+    account_ids = linked_accounts.reject { |account| own_allocation_for(account) }.map(&:id)
+
+    @pace = if account_ids.empty?
+      nil
     else
-      account_ids = linked_accounts.map(&:id)
       net = Entry
         .joins("INNER JOIN transactions ON transactions.id = entries.entryable_id AND entries.entryable_type = 'Transaction'")
         .where(account_id: account_ids, date: 90.days.ago.to_date..Date.current)
@@ -223,14 +229,18 @@ class Goal < ApplicationRecord
     end
   end
 
+  # nil when #pace is nil. `defined?` rather than `||=` so an unattributable
+  # pace is memoized as nil instead of re-running #pace on every call.
   def pace_money
-    @pace_money ||= Money.new(pace, currency)
+    return @pace_money if defined?(@pace_money)
+
+    @pace_money = pace.nil? ? nil : Money.new(pace, currency)
   end
 
   # Months of cash on hand at current pace (open-ended goals).
   def months_of_runway
     return nil if target_date.present?
-    return nil if pace.zero? || pace.negative?
+    return nil if pace.nil? || pace.zero? || pace.negative?
 
     (current_balance.to_d / pace.to_d).round(1)
   end
@@ -282,7 +292,7 @@ class Goal < ApplicationRecord
       target_amount_short_label: short_money(target_amt, currency),
       currency_symbol: Money.new(0, currency).currency.symbol,
       current_amount: current_balance.to_f,
-      avg_monthly: pace.to_f,
+      avg_monthly: pace&.to_f,
       required_monthly: monthly_target_amount&.to_f,
       currency: currency,
       status: status.to_s,
@@ -296,7 +306,9 @@ class Goal < ApplicationRecord
   # the JS calculation so the server can pre-format the chart annotation
   # without re-rendering after each Stimulus draw.
   def projection_end_amount
-    return current_balance.to_d if target_date.nil?
+    # No pace means no attributable growth, so the projection is a flat line
+    # at today's backing rather than a rise off some other goal's inflow.
+    return current_balance.to_d if target_date.nil? || pace.nil?
     months = ((target_date - Date.current).to_f / 30.44).clamp(0.0, Float::INFINITY)
     projected = current_balance.to_d + (pace.to_d * months)
     [ current_balance.to_d, projected ].max
@@ -327,7 +339,7 @@ class Goal < ApplicationRecord
       :reached
     elsif target_date.nil?
       :no_target_date
-    elsif monthly_target_amount.to_d <= pace.to_d
+    elsif pace && monthly_target_amount.to_d <= pace.to_d
       :on_track
     else
       :behind
@@ -402,12 +414,20 @@ class Goal < ApplicationRecord
 
     case status
     when :behind
-      delta = catch_up_delta_money.amount
-      if delta.positive?
-        I18n.t("goals.show.status_callout.behind",
-               amount: catch_up_delta_money.format(precision: 0))
+      # An unattributable pace makes "save X/mo more" bad advice: no deposit
+      # into the shared account moves an earmarked goal's backing. Point at
+      # the only lever that does.
+      if pace.nil?
+        I18n.t("goals.show.status_callout.behind_earmarked",
+               amount: remaining_amount_money.format(precision: 0))
       else
-        I18n.t("goals.show.status_callout.behind_covered")
+        delta = catch_up_delta_money.amount
+        if delta.positive?
+          I18n.t("goals.show.status_callout.behind",
+                 amount: catch_up_delta_money.format(precision: 0))
+        else
+          I18n.t("goals.show.status_callout.behind_covered")
+        end
       end
     when :on_track
       if target_date && pace.to_d.positive?
@@ -458,7 +478,9 @@ class Goal < ApplicationRecord
         I18n.t("goals.show.projection.reached")
       elsif target_date.nil?
         I18n.t("goals.show.projection.no_target_date")
-      elsif monthly_target_amount && pace.to_d < monthly_target_amount.to_d
+      elsif pace.nil?
+        I18n.t("goals.show.projection.earmarked")
+      elsif monthly_target_amount && pace < monthly_target_amount.to_d
         I18n.t("goals.show.projection.behind")
       elsif pace.positive?
         months = (remaining_amount.to_d / pace.to_d).ceil
@@ -481,7 +503,9 @@ class Goal < ApplicationRecord
     return Money.new(0, currency) if monthly_target_amount.nil?
 
     pending = open_pledges.sum(:amount).to_d
-    delta = [ monthly_target_amount.to_d - pace.to_d - pending, 0 ].max
+    # A nil pace counts as zero here: nothing automatic is closing the gap, so
+    # the whole monthly target is still outstanding.
+    delta = [ monthly_target_amount.to_d - (pace || 0) - pending, 0 ].max
     Money.new(delta, currency)
   end
 

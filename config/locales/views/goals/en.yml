@@ -123,6 +123,7 @@ en:
       funding_last_90d: last 90d
       status_callout:
         behind: "save %{amount}/mo more to catch up"
+        behind_earmarked: "raise the earmark by %{amount} to reach the target"
         behind_covered: "pending pledges close the gap"
         on_track: "reaches goal around %{date}"
         no_target_date: "set a target date to project a finish line"
@@ -159,6 +160,7 @@ en:
         no_target_date: No target date set. Set one to project a finish line.
         no_pace: No deposits yet. Add money to a linked account to start a projection.
         behind: Falling short at current pace.
+        earmarked: A fixed earmark backs this goal, so it only moves when you change the earmark.
         on_track_html: At your current pace, you'll reach this goal around <strong class="text-primary whitespace-nowrap">%{date}</strong>.
         aria_label: "Projection chart for %{name}"
         today_marker: Today
@@ -241,6 +243,7 @@ en:
       footer_archived: Archived
       footer_reached: Goal reached
       footer_catch_up: "Save %{amount}/mo to catch up"
+      footer_raise_earmark: "Raise the earmark by %{amount}"
       footer_no_deadline: Open
       pending_pledge: Pending pledge
       pending_count:
