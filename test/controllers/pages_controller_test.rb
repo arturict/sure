@@ -124,6 +124,40 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     assert sankey_data.fetch("nodes").any? { |node| node.fetch("id").start_with?("expense_") }
   end
 
+  # The tile is 384px tall with MIN_LABEL_SPACING = 28, so past roughly 15
+  # nodes most right-column labels are dropped. Maximising is the gesture that
+  # asks for the extra depth.
+  test "dashboard tile omits subcategories while the expanded chart includes them" do
+    parent_category = @family.categories.create!(name: "Shopping", color: "#FF5733")
+    subcategory = @family.categories.create!(name: "Groceries", parent: parent_category, color: "#33FF57")
+
+    create_transaction(account: @family.accounts.first, name: "General shopping", amount: 100, category: parent_category)
+    create_transaction(account: @family.accounts.first, name: "Grocery store", amount: 50, category: subcategory)
+
+    get root_path
+
+    assert_response :ok
+    charts = css_select("[data-controller='sankey-chart']")
+    assert_equal 2, charts.size
+    tile, dialog = charts.map { |chart| JSON.parse(chart["data-sankey-chart-data-value"]) }
+
+    tile_ids = tile.fetch("nodes").map { |node| node.fetch("id") }
+    assert_includes tile_ids, "expense_#{parent_category.id}"
+    assert_empty tile_ids.grep(/\Aexpense_sub_/), "the tile keeps the parents-only trunk"
+
+    dialog_ids = dialog.fetch("nodes").map { |node| node.fetch("id") }
+    assert_includes dialog_ids, "expense_sub_#{subcategory.id}"
+    assert dialog.fetch("links").any? { |link|
+      link["source"] == dialog_ids.index("expense_#{parent_category.id}") &&
+        link["target"] == dialog_ids.index("expense_sub_#{subcategory.id}")
+    }, "expected a parent -> subcategory link in the expanded payload"
+
+    # A root CategoryTotal is a rollup, so collapsing the children must not
+    # lose their spend from the trunk: 100 direct + 50 in Groceries.
+    tile_parent = tile.fetch("nodes").find { |node| node["id"] == "expense_#{parent_category.id}" }
+    assert_equal 150.0, tile_parent.fetch("value")
+  end
+
   test "dashboard renders money flow widget" do
     get root_path
 

@@ -49,7 +49,17 @@ class PagesController < ApplicationController
     expense_totals = income_statement.expense_totals(period: @period)
     net_totals = income_statement.net_category_totals(period: @period)
 
+    # Two depths, one per render site. The 384px dashboard tile hides most
+    # labels past ~15 nodes (MIN_LABEL_SPACING), so it keeps the parents-only
+    # trunk; the expand dialog is 85dvh and gets the subcategories. Both levels
+    # are already in income_totals/expense_totals (a parent CategoryTotal is a
+    # rollup and each child has its own row), so the second build costs no
+    # extra query, and the dialog already rendered a second copy of the payload
+    # before this split — the DOM does not grow.
     @cashflow_sankey_data = build_cashflow_sankey_data(net_totals, income_totals, expense_totals, family_currency)
+    @cashflow_sankey_expanded_data = build_cashflow_sankey_data(
+      net_totals, income_totals, expense_totals, family_currency, include_subcategories: true
+    )
     @outflows_data = build_outflows_donut_data(net_totals)
     # Preview-gated: skip the query outright rather than loading rows the
     # section won't be built from.
@@ -146,7 +156,7 @@ class PagesController < ApplicationController
           title: "pages.dashboard.cashflow_sankey.title",
           partial: "pages/dashboard/cashflow_sankey",
           layout: section_layout("cashflow_sankey"),
-          locals: { sankey_data: @cashflow_sankey_data, period: @period },
+          locals: { sankey_data: @cashflow_sankey_data, expanded_sankey_data: @cashflow_sankey_expanded_data, period: @period },
           visible: @accounts.any?,
           collapsible: true
         },
@@ -240,7 +250,7 @@ class PagesController < ApplicationController
       Provider::Registry.get_provider(:github)
     end
 
-    def build_cashflow_sankey_data(net_totals, income_totals, expense_totals, currency)
+    def build_cashflow_sankey_data(net_totals, income_totals, expense_totals, currency, include_subcategories: false)
       nodes = []
       links = []
       node_indices = {}
@@ -258,8 +268,11 @@ class PagesController < ApplicationController
       # Central Cash Flow node
       cash_flow_idx = add_node.call("cash_flow_node", "Cash Flow", total_income, 100.0, "var(--color-success)")
 
-      # Build netted subcategory data from raw totals
-      net_subcategories_by_parent = build_net_subcategories(expense_totals, income_totals)
+      # Build netted subcategory data from raw totals. Empty when the caller
+      # asked for the trunk only: process_net_category_nodes then emits one
+      # node per root with its rollup total, which is exactly the chart a
+      # family without subcategories has always seen.
+      net_subcategories_by_parent = include_subcategories ? build_net_subcategories(expense_totals, income_totals) : {}
 
       # Process net income categories (flow: subcategory -> parent -> cash_flow)
       process_net_category_nodes(

@@ -1,4 +1,4 @@
-<%# locals: (sankey_data:, period:) %>
+<%# locals: (sankey_data:, expanded_sankey_data:, period:) %>
 <div id="cashflow-sankey-chart">
   <% if sankey_data[:links].present? %>
     <div class="w-full h-96">
@@ -8,7 +8,10 @@
       <% dialog.with_header(title: t("pages.dashboard.cashflow_sankey.title")) %>
       <% dialog.with_body do %>
         <div class="w-full h-[85dvh] max-h-[90dvh] overflow-y-auto overscroll-contain">
-          <%= render "pages/dashboard/cashflow_sankey_chart", sankey_data: sankey_data, period: period %>
+          <%# The deep payload: maximising the tile is the "show me
+              subcategories" gesture. Node-click zoom still drills in from the
+              tile, so nothing is unreachable at either size. %>
+          <%= render "pages/dashboard/cashflow_sankey_chart", sankey_data: expanded_sankey_data, period: period %>
         </div>
       <% end %>
     <% end %>
