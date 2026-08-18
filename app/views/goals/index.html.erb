@@ -50,39 +50,40 @@
         </p>
       </div>
 
+      <%# Funded coverage, not an on-pace fraction. The fraction has a
+          denominator of "goals with a deadline", which is zero for a family
+          that saves open-ended — that tile read a literal "0 of 0". Coverage
+          is defined for every goal, so the headline always says something,
+          and the fraction survives in the subline where its narrower
+          denominator is spelled out. %>
       <div class="bg-container rounded-xl shadow-border-xs px-5 py-5">
-        <p class="text-[11px] font-medium uppercase tracking-wide text-secondary"><%= t(".kpi.on_track_label") %></p>
-        <% if @kpi[:tracked_total].zero? && @kpi[:reached_count].positive? %>
-          <%# All active goals already hit their target — fraction would
-              read "0 of 0" or paper over success. Swap to a celebratory
-              empty state instead. %>
-          <p class="text-3xl font-medium text-primary mt-2">
-            <%= t(".kpi.on_track_all_caught_up") %>
-          </p>
-          <p class="text-xs text-secondary mt-1">
-            <%= t(".kpi.on_track_sub_parts.reached", count: @kpi[:reached_count]) %>
-          </p>
+        <p class="text-[11px] font-medium uppercase tracking-wide text-secondary"><%= t(".kpi.funded_label") %></p>
+        <% if @kpi[:funded_percent].nil? %>
+          <%# Nothing to divide by: every goal is completed or archived (the
+              strip still renders, because @counts["all"] is non-zero). %>
+          <p class="text-3xl font-medium text-primary mt-2"><%= t(".kpi.funded_none") %></p>
         <% else %>
-          <p class="text-3xl font-medium text-primary tabular-nums mt-2">
-            <%= t(".kpi.on_track_value", on_track: @kpi[:on_track_count], total: @kpi[:tracked_total]) %>
-          </p>
+          <% if @kpi[:funded_percent] == 100 %>
+            <p class="text-3xl font-medium text-primary mt-2"><%= t(".kpi.funded_all") %></p>
+          <% else %>
+            <p class="text-3xl font-medium text-primary tabular-nums mt-2">
+              <%= t(".kpi.funded_value", percent: @kpi[:funded_percent]) %>
+            </p>
+          <% end %>
           <p class="text-xs text-secondary mt-1">
             <%
-              # Reached goals are intentionally absent from the subline when
-              # the fraction is calculable. They no longer count toward pace
-              # tracking, and surfacing "N reached" next to "X of Y" muddied
-              # the message (the fraction is a needle, "N reached" is a
-              # trophy. different signals).
+              # The money line is the only part that is always true; the rest
+              # qualify it. "on pace" is spelled out because its denominator
+              # (dated, unpaused, unreached goals) is narrower than the
+              # headline's, and a second bare fraction would read as a
+              # contradiction of the percent above it.
               parts = []
-              parts << t(".kpi.on_track_sub_parts.behind", count: @kpi[:behind_count]) if @kpi[:behind_count].positive?
+              parts << t(".kpi.funded_sub_parts.on_pace", on_track: @kpi[:on_track_count], total: @kpi[:tracked_total]) if @kpi[:tracked_total].positive?
+              parts << t(".kpi.on_track_sub_parts.reached", count: @kpi[:reached_count]) if @kpi[:reached_count].positive?
               parts << t(".kpi.on_track_sub_parts.no_date", count: @kpi[:no_date_count]) if @kpi[:no_date_count].positive?
               parts << t(".kpi.on_track_sub_parts.paused", count: @kpi[:paused_count]) if @kpi[:paused_count].positive?
             %>
-            <% if parts.any? %>
-              <%= parts.join(" · ") %>
-            <% else %>
-              <%= t(".kpi.on_track_sub_all_good") %>
-            <% end %>
+            <span class="privacy-sensitive"><%= t(".kpi.funded_sub_money", saved: @kpi[:funded_money].format(precision: 0), target: @kpi[:funded_target_money].format(precision: 0)) %></span><% if parts.any? %> · <%= parts.join(" · ") %><% end %>
           </p>
         <% end %>
       </div>

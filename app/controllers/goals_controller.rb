@@ -299,11 +299,36 @@ class GoalsController < ApplicationController
       # "X of Y" fraction could exceed its own denominator.
       on_track = active_goals.count { |g| !g.paused? && g.status == :on_track }
       reached = active_goals.count { |g| g.status == :reached }
-      no_date = active_goals.count { |g| g.status == :no_target_date }
+      # `!g.paused?` so a paused open-ended goal is reported once. Goal#status
+      # ignores the paused state (display_status is what folds it in), so the
+      # same goal used to land in both the "without a deadline" and "paused"
+      # parts of the same subline.
+      no_date = active_goals.count { |g| !g.paused? && g.status == :no_target_date }
       paused = active_goals.count(&:paused?)
 
-      # Denominator of the "Goals on track" tile. A goal only belongs in
-      # the fraction if there is a benchmark to compare against:
+      # Headline of the third tile: how much of everything being saved for is
+      # already there. Deliberately independent of #pace and #status, which are
+      # undefined for an open-ended goal — a strip led by an on-pace fraction
+      # reads "0 of 0" for a family whose goals all lack a deadline.
+      #
+      # Restricted to the family's primary currency because Goal#currency is
+      # validated against the goal's linked accounts, not against the family:
+      # adding a EUR target to a CHF sum would invent money.
+      funded_goals = active_goals.select { |g| g.currency == currency }
+      total_target = funded_goals.sum { |g| g.target_amount.to_d }
+      # target_amount - remaining_amount rather than current_balance:
+      # remaining_amount is already clamped at 0, so this is min(balance,
+      # target) and one over-funded goal cannot mask an unfunded one.
+      covered = funded_goals.sum { |g| g.target_amount.to_d - g.remaining_amount.to_d }
+      # nil (not 0) when there is nothing to divide by — the strip still renders
+      # for a family whose goals are all completed or archived, and a bare
+      # division there took the whole page down.
+      funded_percent = if total_target.positive?
+        covered >= total_target ? 100 : ((covered / total_target) * 100).floor.clamp(0, 99)
+      end
+
+      # Denominator of the "N of M on pace" subline part. A goal only belongs
+      # in the fraction if there is a benchmark to compare against:
       # - reached  → target already hit, no longer tracked toward pace
       # - paused   → user stopped the pace clock on purpose
       # - no_target_date → open-ended saving (emergency fund, sabbatical
@@ -315,8 +340,8 @@ class GoalsController < ApplicationController
       #   exclusions above, so without this it would land in the denominator
       #   and never in the numerator: a family with one reserve read
       #   "0 of 1 on track" for a goal that is working exactly as intended.
-      # When this hits zero the tile swaps to a celebration / empty
-      # state in the view.
+      # When this hits zero the view drops the fraction entirely rather than
+      # rendering "0 of 0".
       tracked_total = active_goals.count do |g|
         !g.paused? && !g.maintained? && g.status != :reached && g.status != :no_target_date
       end
@@ -335,7 +360,10 @@ class GoalsController < ApplicationController
         no_date_count: no_date,
         paused_count: paused,
         tracked_total: tracked_total,
-        active_total: active_goals.size
+        active_total: active_goals.size,
+        funded_percent: funded_percent,
+        funded_money: Money.new(covered, currency),
+        funded_target_money: Money.new(total_target, currency)
       }
     end
 

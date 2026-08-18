@@ -382,7 +382,7 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
     assert_nil txn.reload.extra.dig("goal", "pledge_id")
   end
 
-  test "index KPI swaps to 'All caught up' when every tracked goal is reached" do
+  test "index KPI celebrates when every active goal is fully funded" do
     family = users(:family_admin).family
     family.goals.destroy_all
     # Real reached state: target $1 against the depository fixture's
@@ -392,11 +392,11 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
 
     get goals_url
     assert_response :success
-    assert_match(/All caught up/i, response.body)
+    assert_match(/Fully funded/i, response.body)
     assert_match(/1\s*reached/i, response.body)
   end
 
-  test "index KPI 'on track' denominator excludes no-target-date goals" do
+  test "index KPI 'on pace' denominator excludes no-target-date goals" do
     family = users(:family_admin).family
     family.goals.destroy_all
     # One trackable goal (has target_date) + one open-ended (no target_date).
@@ -407,9 +407,10 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
 
     get goals_url
     assert_response :success
-    # Expect "0 of 1" — the open-ended goal stays out of the fraction
-    # even though it's active.
-    assert_match(/0\s*of\s*1/i, response.body)
+    # "0 of 1 on pace" — the open-ended goal stays out of the fraction even
+    # though it is active, and the words say which denominator this is, since
+    # the headline percent counts both goals.
+    assert_match(/0\s*of\s*1\s*on pace/i, response.body)
     assert_match(/without a deadline/i, response.body)
   end
 
@@ -924,6 +925,86 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
       "a spend was still offered against money the reader cannot see"
   end
 
+  # Artur's shape: twelve goals, none with a deadline, so the old tile printed
+  # a literal "0 of 0" — a third of the KPI strip carrying no information.
+  test "index KPI reports funded coverage when no goal has a target date" do
+    family = users(:family_admin).family
+    family.goals.destroy_all
+    funded_goal(family, "Reserve", target_amount: 800, balance: 200)
+    funded_goal(family, "Gifts", target_amount: 200, balance: 100)
+
+    get goals_url
+
+    assert_response :success
+    assert_no_match(/0\s*of\s*0/, response.body)
+    assert_match(/30%/, response.body)
+    assert_match(/\$300 of \$1,000 saved/, response.body)
+  end
+
+  # The case a plain "fall back to coverage when tracked_total is zero" fix
+  # cannot survive: one deadline is enough to make the fraction calculable, and
+  # the headline would then describe one goal out of four.
+  test "index KPI keeps the whole portfolio in the headline when only some goals are dated" do
+    family = users(:family_admin).family
+    family.goals.destroy_all
+    dated = funded_goal(family, "Trip", target_amount: 1_000, balance: 900,
+                        target_date: 1.year.from_now.to_date)
+    create_transaction(account: dated.linked_accounts.first, amount: -100, date: 30.days.ago.to_date)
+    3.times { |i| funded_goal(family, "Open #{i}", target_amount: 1_000, balance: 0) }
+
+    get goals_url
+
+    assert_response :success
+    assert_match(/22%/, response.body)
+    assert_match(/\$900 of \$4,000 saved/, response.body)
+    assert_match(/1\s*of\s*1\s*on pace/i, response.body)
+  end
+
+  # Pins the numerator to target_amount - remaining_amount. A naive
+  # sum(current_balance) / sum(target_amount) reads 150% here and clamps to a
+  # "Fully funded" celebration while half the portfolio is empty.
+  test "index KPI caps an over-funded goal at its target" do
+    family = users(:family_admin).family
+    family.goals.destroy_all
+    funded_goal(family, "Overflowing", target_amount: 1_000, balance: 3_000)
+    funded_goal(family, "Untouched", target_amount: 1_000, balance: 0)
+
+    get goals_url
+
+    assert_response :success
+    assert_match(/50%/, response.body)
+    assert_no_match(/Fully funded/i, response.body)
+  end
+
+  # The strip still renders when every goal is completed or archived
+  # (@counts["all"] is non-zero while @active_goals is empty). An unguarded
+  # coverage percent divides by zero there and takes the page down.
+  test "index KPI renders no percent when no goal is active" do
+    family = users(:family_admin).family
+    family.goals.destroy_all
+    funded_goal(family, "Done", target_amount: 1_000, balance: 1_000).complete!
+
+    get goals_url
+
+    assert_response :success
+    assert_match(/No active goals/i, response.body)
+    assert_no_match(/0\s*of\s*0/, response.body)
+  end
+
+  test "index KPI counts a paused open-ended goal once" do
+    family = users(:family_admin).family
+    family.goals.destroy_all
+    funded_goal(family, "Resting", target_amount: 1_000, balance: 0).pause!
+    funded_goal(family, "Running", target_amount: 1_000, balance: 0)
+
+    get goals_url
+
+    assert_response :success
+    assert_match(/1 without a deadline/, response.body)
+    assert_match(/1 paused/, response.body)
+    assert_no_match(/2 without a deadline/, response.body)
+  end
+
   private
 
     def spent_goal_for_display
@@ -1088,6 +1169,21 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
       )
       g = family.goals.new(name: name, target_amount: target_amount, target_date: target_date, currency: "USD")
       g.goal_accounts.build(account: funding)
+      g.save!
+      g
+    end
+
+    # One dedicated account per goal, linked whole-balance, so `balance` is
+    # exactly this goal's backing. Sharing the depository fixture would give
+    # every unallocated goal the same $5,000 remainder and make the coverage
+    # arithmetic untestable.
+    def funded_goal(family, name, target_amount:, balance:, target_date: nil)
+      account = Account.create!(
+        family: family, accountable: Depository.new,
+        name: "#{name} account", currency: "USD", balance: balance
+      )
+      g = family.goals.new(name: name, target_amount: target_amount, target_date: target_date, currency: "USD")
+      g.goal_accounts.build(account: account)
       g.save!
       g
     end
