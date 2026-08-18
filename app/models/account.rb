@@ -486,8 +486,7 @@ class Account < ApplicationRecord
   end
 
   # Headroom left to earmark toward goals before fixed allocations exceed the
-  # balance. Negative means the account is over-earmarked. Intended to back a
-  # non-blocking over-allocation warning (UI is a follow-up). Mirrors
+  # balance. Negative means the account is over-earmarked. Mirrors
   # Budget#available_to_allocate.
   def free_to_earmark
     balance.to_d - goal_earmarked_total
