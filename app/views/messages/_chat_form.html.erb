@@ -25,27 +25,20 @@
           <% end %>
         </div>
 
-        <%# Model and thinking depth sit with the prompt rather than in settings,
-            because both are per-message decisions. Both selections are sticky:
-            the model rides on the message, the effort on the user. %>
-        <%# selected: is passed explicitly because Chat has no ai_model
-            attribute for the select helper to read on the new-chat form. %>
-        <%= f.select :ai_model,
-                     options_for_select(Chat.selectable_models, selected_model),
-                     { selected: selected_model },
-                     class: composer_select_classes,
-                     title: t(".model_title") %>
+        <%# Model and thinking depth belong with the prompt, not three pages away
+            in hosting settings. The model rides on the message; the effort is a
+            user preference the picker sets on its own. %>
+        <%= f.hidden_field :ai_model, value: selected_model %>
+
+        <%# One configured model is a fact, not a choice, so it is shown rather
+            than offered. A picker returns here the day a second model is worth
+            paying for. %>
+        <span class="text-xs text-secondary px-1.5 whitespace-nowrap" title="<%= t(".model_title") %>">
+          <%= Chat.humanize_model(selected_model) %>
+        </span>
 
         <% if Provider::Openai.supports_reasoning_effort?(selected_model) %>
-          <%= select_tag :reasoning_effort,
-                         options_for_select(
-                           [ [ t(".effort_default"), "" ],
-                             *Provider::Openai::REASONING_EFFORTS.map { |e| [ t(".effort_#{e}"), e ] } ],
-                           Current.user.ai_reasoning_effort
-                         ),
-                         class: composer_select_classes,
-                         title: t(".effort_title"),
-                         disabled: ENV["OPENAI_REASONING_EFFORT"].present? %>
+          <%= render UI::EffortPicker.new(selected: Current.user.ai_reasoning_effort) %>
         <% end %>
       </div>
 

@@ -11,9 +11,6 @@ class Setting < RailsSettings::Base
   field :openai_model, type: :string, default: ENV["OPENAI_MODEL"]
   field :openai_json_mode, type: :string, default: ENV["LLM_JSON_MODE"]
   field :openai_reasoning_effort, type: :string, default: ENV["OPENAI_REASONING_EFFORT"]
-  # Comma-separated model ids offered in the chat composer. Blank falls back to
-  # Chat::SUGGESTED_MODELS plus whatever the install is configured with.
-  field :llm_chat_models, type: :string, default: ENV["LLM_CHAT_MODELS"]
   field :anthropic_access_token, type: :string, default: ENV["ANTHROPIC_ACCESS_TOKEN"].presence || ENV["ANTHROPIC_API_KEY"].presence
   field :anthropic_model, type: :string, default: ENV["ANTHROPIC_MODEL"]
   field :anthropic_base_url, type: :string, default: ENV["ANTHROPIC_BASE_URL"]
