@@ -106,20 +106,31 @@ UNAUTHENTICATED
 
 # Looks the entry up by the URI it is saved against rather than by name, so
 # renaming the item in the vault does not break this script.
+#
+# `bw list items --url` is not precise enough on its own: Bitwarden's default
+# URI match is the BASE DOMAIN, so every *.artur.casa login -- status, immich,
+# whatever else lands there -- comes back as a match for finance.artur.casa and
+# trips the uniqueness guard below. Candidates are therefore narrowed to items
+# carrying a URI whose HOST is exactly the one being tested, which is the check
+# the guard was always meant to make.
 load_credentials() {
-  local matches count names
+  local host matches count names
 
-  if ! matches="$("$BW_BIN" list items --url "$BASE_URL" 2>/dev/null | jq -c '[.[] | {id, name, username: .login.username}]')"; then
+  host="$(printf '%s' "$BASE_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')"
+
+  if ! matches="$("$BW_BIN" list items --url "$BASE_URL" 2>/dev/null | jq -c --arg host "$host" \
+      '[.[] | select((.login.uris // []) | any((.uri // "") | sub("^[a-z]+://"; "") | sub("[:/].*$"; "") == $host))
+            | {id, name, username: .login.username}]')"; then
     die "could not read the vault (is BW_SESSION exported?)"
   fi
 
   count="$(printf '%s' "$matches" | jq 'length')"
   if [ "$count" -eq 0 ]; then
-    die "no Bitwarden item has a URI matching $BASE_URL -- add the URI to the Sure login item"
+    die "no Bitwarden item carries a URI for host $host -- add $BASE_URL to the Sure login item"
   fi
   if [ "$count" -gt 1 ]; then
     names="$(printf '%s' "$matches" | jq -r '.[] | "  - " + .name')"
-    printf 'error: %s Bitwarden items match the URI %s:\n%s\n' "$count" "$BASE_URL" "$names" >&2
+    printf 'error: %s Bitwarden items carry a URI for host %s:\n%s\n' "$count" "$host" "$names" >&2
     die "keep the URI on exactly one item so this script cannot pick the wrong login"
   fi
 
@@ -251,7 +262,12 @@ sign_in() {
   [ -n "$submit_button" ] || die "no submit button on the sign-in form"
   click_element "$submit_button"
 
-  if ! wait_for_js 'return document.querySelector("#user-menu") !== null;'; then
+  # The signed-in marker is a data-testid, not an id -- app/views/users/_user_menu.html.erb
+  # renders <div data-testid="user-menu">. Matching on #user-menu never succeeds and
+  # reports a wrong password for what is really a selector bug.
+  # Unquoted attribute value on purpose: this JS lives inside a single-quoted
+  # shell string, so nested quotes of either kind break the script.
+  if ! wait_for_js 'return document.querySelector("[data-testid=user-menu]") !== null;'; then
     die "sign-in did not complete (wrong password, or a second factor is waiting). Nothing was printed."
   fi
   log "Signed in."
