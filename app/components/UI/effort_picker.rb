@@ -8,6 +8,10 @@
 class UI::EffortPicker < ApplicationComponent
   DEFAULT = "".freeze
 
+  # The picker replaces itself after a change rather than re-rendering the
+  # whole composer, which would wipe a half-typed prompt.
+  DOM_ID = "chat_effort_picker".freeze
+
   attr_reader :selected, :placement
 
   def initialize(selected: nil, placement: "top-start")
