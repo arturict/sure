@@ -10,7 +10,13 @@ class UI::EffortPicker < ApplicationComponent
 
   # The picker replaces itself after a change rather than re-rendering the
   # whole composer, which would wipe a half-typed prompt.
-  DOM_ID = "chat_effort_picker".freeze
+  #
+  # A class, not an id: a chat page renders the composer twice, once in the main
+  # column and once in the sidebar frame. An id would be duplicated in the
+  # document and a `replace` would silently update only the first, leaving the
+  # other showing a depth that is no longer in effect.
+  TARGET_CLASS = "chat-effort-picker".freeze
+  TARGETS = ".#{TARGET_CLASS}".freeze
 
   attr_reader :selected, :placement
 

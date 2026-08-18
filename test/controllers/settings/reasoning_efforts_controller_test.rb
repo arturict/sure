@@ -29,7 +29,7 @@ class Settings::ReasoningEffortsControllerTest < ActionDispatch::IntegrationTest
           params: { reasoning_effort: "low" },
           headers: TURBO_FRAME_HEADERS
 
-    assert_match(/<turbo-stream action="replace" target="#{UI::EffortPicker::DOM_ID}">/, response.body)
+    assert_match(/<turbo-stream action="replace" targets="#{Regexp.escape(UI::EffortPicker::TARGETS)}">/, response.body)
     assert_match I18n.t("messages.chat_form.effort_low"), response.body
   end
 
@@ -42,7 +42,7 @@ class Settings::ReasoningEffortsControllerTest < ActionDispatch::IntegrationTest
       assert_response :success, "level #{level.presence || 'default'} did not render"
       stored = @user.reload.ai_reasoning_effort
       level.present? ? assert_equal(level, stored) : assert_nil(stored)
-      assert_match(/target="#{UI::EffortPicker::DOM_ID}"/, response.body)
+      assert_match(/targets="#{Regexp.escape(UI::EffortPicker::TARGETS)}"/, response.body)
     end
   end
 
