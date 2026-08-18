@@ -6,6 +6,18 @@ class Settings::ReasoningEffortsController < ApplicationController
   def update
     Current.user.update!(ai_reasoning_effort: params[:reasoning_effort])
 
-    redirect_back_or_to root_path
+    respond_to do |format|
+      # The picker lives inside the chat's Turbo Frame, so a redirect here
+      # returns a page with no matching frame and Turbo renders "Content
+      # missing". Replacing just the picker also preserves a half-typed prompt,
+      # which re-rendering the composer would discard.
+      format.turbo_stream do
+        render turbo_stream: turbo_stream.replace(
+          UI::EffortPicker::DOM_ID,
+          view_context.render(UI::EffortPicker.new(selected: Current.user.ai_reasoning_effort))
+        )
+      end
+      format.html { redirect_back_or_to root_path }
+    end
   end
 end
