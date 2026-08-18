@@ -23,9 +23,15 @@ class DS::ProgressRing < DesignSystemComponent
   # the budget donut surfaces, so it's deferred out of this extraction.
   DEFAULT_TRACK = "var(--budget-unused-fill)".freeze
 
+  # An explicit `color:` is for rings that carry identity rather than status —
+  # a goal's own color, a category color. Only a hex literal or a CSS
+  # custom-property reference is accepted; anything else falls back to the tone
+  # rather than being interpolated straight into the stroke attribute.
+  COLOR_FORMAT = /\A(#[0-9A-Fa-f]{6}|var\(--[a-zA-Z0-9-]+\))\z/
+
   attr_reader :size, :stroke_width, :label, :show_percent
 
-  def initialize(percent:, size: 64, stroke_width: 6, tone: :neutral, label: nil, show_percent: true, track: DEFAULT_TRACK)
+  def initialize(percent:, size: 64, stroke_width: 6, tone: :neutral, label: nil, show_percent: true, track: DEFAULT_TRACK, color: nil)
     @percent = percent
     @size = size
     @stroke_width = stroke_width
@@ -33,6 +39,7 @@ class DS::ProgressRing < DesignSystemComponent
     @label = label
     @show_percent = show_percent
     @track = track
+    @color = color
   end
 
   def clamped_percent
@@ -40,6 +47,8 @@ class DS::ProgressRing < DesignSystemComponent
   end
 
   def stroke_color
+    return @color if @color.to_s.match?(COLOR_FORMAT)
+
     TONES.fetch(@tone, TONES[:neutral])
   end
 
