@@ -28,6 +28,31 @@ class GoalsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/Goals/i, response.body)
   end
 
+  test "index warns when an account is earmarked past its balance" do
+    account = Account.create!(family: @user.family, accountable: Depository.new, name: "Squeezed Savings", currency: "USD", balance: 100)
+    @user.family.goals.create!(name: "Squeezer", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 400)
+    end
+
+    get goals_url
+
+    assert_response :success
+    assert_match(/Squeezed Savings/, response.body)
+    assert_match(/Earmarks exceed the account balance/i, response.body)
+  end
+
+  test "index shows no over-earmark warning when every account has headroom" do
+    account = Account.create!(family: @user.family, accountable: Depository.new, name: "Roomy Savings", currency: "USD", balance: 5_000)
+    @user.family.goals.create!(name: "Roomy", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 400)
+    end
+
+    get goals_url
+
+    assert_response :success
+    assert_no_match(/Earmarks exceed the account balance/i, response.body)
+  end
+
   test "index honors state filter" do
     get goals_url(state: "paused")
     assert_response :success

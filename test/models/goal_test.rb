@@ -821,6 +821,66 @@ class GoalTest < ActiveSupport::TestCase
     assert_equal BigDecimal("3500"), account.free_to_earmark
   end
 
+  test "over_earmarked? is true only once fixed earmarks pass the balance" do
+    account = Account.create!(family: @family, accountable: Depository.new, name: "Tight Savings", currency: "USD", balance: 1_000)
+    goal = @family.goals.create!(name: "Exactly Full", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 1_000)
+    end
+    assert_not account.over_earmarked?, "an exactly-full account is not over-earmarked"
+
+    goal.goal_accounts.first.update!(allocated_amount: 1_000.01)
+    assert Account.find(account.id).over_earmarked?
+  end
+
+  test "whole-balance links never make an account over_earmarked" do
+    account = Account.create!(family: @family, accountable: Depository.new, name: "Pooled Savings", currency: "USD", balance: 100)
+    2.times do |i|
+      @family.goals.create!(name: "Pooled #{i}", target_amount: 5_000, currency: "USD") do |g|
+        g.goal_accounts.build(account: account)
+      end
+    end
+    assert_not account.over_earmarked?, "unallocated links reserve no fixed slice"
+  end
+
+  test "archived goals release their earmark for over_earmarked?" do
+    account = Account.create!(family: @family, accountable: Depository.new, name: "Releasing Savings", currency: "USD", balance: 1_000)
+    goal = @family.goals.create!(name: "Releaser", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 1_500)
+    end
+    assert account.over_earmarked?
+
+    goal.archive!
+    assert_not Account.find(account.id).over_earmarked?
+  end
+
+  test "Account.over_earmarked returns only overdrawn accounts with their overage" do
+    over  = Account.create!(family: @family, accountable: Depository.new, name: "Over", currency: "USD", balance: 1_000)
+    under = Account.create!(family: @family, accountable: Depository.new, name: "Under", currency: "USD", balance: 1_000)
+    @family.goals.create!(name: "Over A", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: over, allocated_amount: 900)
+    end
+    @family.goals.create!(name: "Over B", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: over, allocated_amount: 350)
+    end
+    @family.goals.create!(name: "Under A", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: under, allocated_amount: 400)
+    end
+
+    result = Account.over_earmarked(scope: @family.accounts)
+    assert_equal [ over.id ], result.map { |account, _| account.id }
+    assert_equal Money.new(250, "USD"), result.first.last
+  end
+
+  test "Account.over_earmarked honours the scope it is given" do
+    account = Account.create!(family: @family, accountable: Depository.new, name: "Scoped Out", currency: "USD", balance: 100)
+    @family.goals.create!(name: "Scoped", target_amount: 5_000, currency: "USD") do |g|
+      g.goal_accounts.build(account: account, allocated_amount: 500)
+    end
+
+    assert_equal [ account.id ], Account.over_earmarked(scope: @family.accounts).map { |a, _| a.id }
+    assert_empty Account.over_earmarked(scope: @family.accounts.where.not(id: account.id))
+  end
+
   test "an overdrawn account backs nothing for fixed or whole-balance links" do
     account = Account.create!(family: @family, accountable: Depository.new, name: "Overdrawn", currency: "USD", balance: BigDecimal("-100"))
     fixed = @family.goals.create!(name: "Fixed OD", target_amount: 1_000, currency: "USD") do |g|

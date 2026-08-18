@@ -28,6 +28,7 @@ class GoalsController < ApplicationController
     @linkable_account_count = Current.user.accessible_accounts.where(accountable_type: FUNDABLE_TYPES).visible.count
     @kpi = kpi_payload(@active_goals)
     @any_pending_pledge = @active_goals.any? { |g| g.open_pledges.any? }
+    @over_earmarked = Account.over_earmarked(scope: Current.user.accessible_accounts)
     @show_search = @grid_goals.size > 6
     @breadcrumbs = plan_breadcrumb_prefix + [ [ t("goals.index.title"), nil ] ]
   end

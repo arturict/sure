@@ -164,6 +164,25 @@ class Account < ApplicationRecord
   end
 
   class << self
+    # Accounts within `scope` whose fixed goal earmarks claim more than the
+    # account holds, as [account, overage_money] pairs sorted by name. One
+    # grouped query plus one account load, rather than #free_to_earmark per
+    # account, so the goals index can warn without an N+1.
+    def over_earmarked(scope: all)
+      totals = GoalAccount.joins(:goal)
+                          .where(account_id: scope.select(:id))
+                          .where.not(allocated_amount: nil)
+                          .where.not(goals: { state: "archived" })
+                          .group(:account_id)
+                          .sum(:allocated_amount)
+      return [] if totals.empty?
+
+      scope.where(id: totals.keys).visible.sort_by(&:name).filter_map do |account|
+        overage = totals[account.id].to_d - account.balance.to_d
+        [ account, Money.new(overage, account.currency) ] if overage.positive?
+      end
+    end
+
     def human_attribute_name(attribute, options = {})
       options = { moniker: Current.family&.moniker_label || "Family" }.merge(options)
       super(attribute, options)
@@ -490,6 +509,15 @@ class Account < ApplicationRecord
   # Budget#available_to_allocate.
   def free_to_earmark
     balance.to_d - goal_earmarked_total
+  end
+
+  # True when fixed goal earmarks claim more than this account actually holds.
+  # Goal#backing_share_for then scales every fixed earmark down pro-rata, so
+  # each ring silently reports less progress than its earmark implies. That
+  # haircut is correct math but invisible, which is what this flag exists to
+  # surface.
+  def over_earmarked?
+    free_to_earmark.negative?
   end
 
   def logo_url
