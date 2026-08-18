@@ -27,7 +27,24 @@ class DS::ProgressRing < DesignSystemComponent
   # a goal's own color, a category color. Only a hex literal or a CSS
   # custom-property reference is accepted; anything else falls back to the tone
   # rather than being interpolated straight into the stroke attribute.
-  COLOR_FORMAT = /\A(#[0-9A-Fa-f]{6}|var\(--[a-zA-Z0-9-]+\))\z/
+  COLOR_FORMAT = /\A(#[0-9A-Fa-f]{6}|var\(--[a-zA-Z0-9-]+\)|hsl\([\d.]+, ?[\d.]+%, ?[\d.]+%\))\z/
+
+  # Endpoints of the progress scale, in HSL. They are the red and the green
+  # already in Category::COLORS (#db5a54 and #4da568) expressed as hue,
+  # saturation and lightness so the steps between them can be interpolated
+  # rather than bucketed — a bucketed scale makes 49% and 51% look like
+  # different kinds of thing when they are not.
+  SCALE_EMPTY = [ 4.0, 63.0, 60.0 ].freeze
+  SCALE_FULL  = [ 140.0, 37.0, 47.0 ].freeze
+
+  # Progress as color: red at 0%, green at 100%, continuous in between.
+  # Returned as an hsl() literal rather than a hex so the interpolation stays
+  # readable in the markup.
+  def self.scale_color(percent)
+    t = [ [ percent.to_f, 0.0 ].max, 100.0 ].min / 100.0
+    h, s, l = SCALE_EMPTY.zip(SCALE_FULL).map { |from, to| from + (to - from) * t }
+    format("hsl(%.1f, %.1f%%, %.1f%%)", h, s, l)
+  end
 
   attr_reader :size, :stroke_width, :label, :show_percent
 

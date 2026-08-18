@@ -48,6 +48,27 @@ class DS::ProgressRingTest < ViewComponent::TestCase
     assert_selector "svg circle[stroke='var(--color-warning)']"
   end
 
+  test "scale_color runs red at empty to green at full" do
+    assert_equal "hsl(4.0, 63.0%, 60.0%)", DS::ProgressRing.scale_color(0)
+    assert_equal "hsl(140.0, 37.0%, 47.0%)", DS::ProgressRing.scale_color(100)
+  end
+
+  test "scale_color moves monotonically toward green" do
+    hues = [ 0, 25, 50, 75, 100 ].map { |p| DS::ProgressRing.scale_color(p)[/hsl\(([\d.]+)/, 1].to_f }
+    assert_equal hues.sort, hues
+    assert_equal hues.uniq, hues
+  end
+
+  test "scale_color clamps out-of-range percentages" do
+    assert_equal DS::ProgressRing.scale_color(0), DS::ProgressRing.scale_color(-40)
+    assert_equal DS::ProgressRing.scale_color(100), DS::ProgressRing.scale_color(160)
+  end
+
+  test "a scale color is accepted as an explicit stroke" do
+    render_inline(DS::ProgressRing.new(percent: 50, tone: :neutral, color: DS::ProgressRing.scale_color(50)))
+    assert_selector "svg circle[stroke='hsl(72.0, 50.0%, 53.5%)']"
+  end
+
   test "tone selects the arc stroke color token" do
     assert_equal "var(--color-success)", DS::ProgressRing.new(percent: 1, tone: :success).stroke_color
     assert_equal "var(--color-warning)", DS::ProgressRing.new(percent: 1, tone: :warning).stroke_color
