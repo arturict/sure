@@ -8,6 +8,44 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
     @subject_model = "gpt-4.1"
   end
 
+  test "reasoning effort is nil unless one is configured" do
+    assert_nil @openai.reasoning_effort_for("gpt-5.6-luna")
+  end
+
+  test "a configured reasoning effort applies to reasoning-capable models" do
+    Setting.stubs(:openai_reasoning_effort).returns("xhigh")
+
+    assert_equal "xhigh", @openai.reasoning_effort_for("gpt-5.6-luna")
+    assert_equal "xhigh", @openai.reasoning_effort_for("o3-mini")
+  end
+
+  test "a configured reasoning effort is dropped for models that reject it" do
+    Setting.stubs(:openai_reasoning_effort).returns("high")
+
+    assert_nil @openai.reasoning_effort_for("gpt-4.1")
+  end
+
+  test "an unrecognized reasoning effort is ignored rather than sent" do
+    Setting.stubs(:openai_reasoning_effort).returns("turbo")
+
+    assert_nil @openai.reasoning_effort_for("gpt-5.6-luna")
+  end
+
+  test "ENV wins over the stored reasoning effort" do
+    Setting.stubs(:openai_reasoning_effort).returns("low")
+
+    with_env_overrides OPENAI_REASONING_EFFORT: "max" do
+      assert_equal "max", @openai.reasoning_effort_for("gpt-5.6-luna")
+    end
+  end
+
+  test "supports_reasoning_effort? covers the reasoning families only" do
+    assert Provider::Openai.supports_reasoning_effort?("gpt-5.6-luna")
+    assert Provider::Openai.supports_reasoning_effort?("o1-preview")
+    assert_not Provider::Openai.supports_reasoning_effort?("gpt-4.1")
+    assert_not Provider::Openai.supports_reasoning_effort?(nil)
+  end
+
   test "openai errors are automatically raised" do
     VCR.use_cassette("openai/chat/error") do
       response = @openai.chat_response("Test", model: "invalid-model-that-will-trigger-api-error")

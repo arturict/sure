@@ -8,6 +8,17 @@ class Provider::Openai < Provider
   SUPPORTED_MODELS = %w[gpt-4 gpt-5 o1 o3].freeze
   VISION_CAPABLE_MODEL_PREFIXES = %w[gpt-4o gpt-4-turbo gpt-4.1 gpt-5 o1 o3].freeze
 
+  # How long the model is allowed to think before answering. Ordered cheapest
+  # to most thorough; "none" skips reasoning entirely. Only the reasoning
+  # families accept it — sending it to gpt-4.1 is an API error, so
+  # #reasoning_effort_for returns nil there and the key is omitted.
+  REASONING_EFFORTS = %w[none low medium high xhigh max].freeze
+  REASONING_CAPABLE_MODEL_PREFIXES = %w[gpt-5 o1 o3].freeze
+
+  def self.supports_reasoning_effort?(model)
+    REASONING_CAPABLE_MODEL_PREFIXES.any? { |prefix| model.to_s.start_with?(prefix) }
+  end
+
   # Returns the effective model that would be used by the provider.
   # Priority: explicit ENV > Setting > DEFAULT_MODEL.
   def self.effective_model
@@ -74,6 +85,18 @@ class Provider::Openai < Provider
   # via the Self-Hosting settings page.
   def context_window
     positive_budget(ENV["LLM_CONTEXT_WINDOW"], Setting.llm_context_window, 2048)
+  end
+
+  # Configured effort, or nil to let the provider apply its own default.
+  # Priority matches the other LLM budgets: explicit ENV > Setting. A custom
+  # OpenAI-compatible endpoint manages its own model capabilities, so the
+  # prefix check is skipped there and the operator's choice is passed through.
+  def reasoning_effort_for(model)
+    configured = ENV.fetch("OPENAI_REASONING_EFFORT") { Setting.openai_reasoning_effort }.presence
+    return nil unless REASONING_EFFORTS.include?(configured)
+    return nil unless custom_provider? || self.class.supports_reasoning_effort?(model)
+
+    configured
   end
 
   def max_response_tokens
@@ -366,14 +389,21 @@ class Provider::Openai < Provider
         input_payload = chat_config.build_input(prompt: prompt)
 
         begin
-          raw_response = client.responses.create(parameters: {
+          request_parameters = {
             model: model,
             input: input_payload,
             instructions: instructions,
             tools: chat_config.tools,
             previous_response_id: previous_response_id,
             stream: stream_proxy
-          })
+          }
+
+          # Omitted rather than sent as nil: the Responses API rejects the key
+          # outright on non-reasoning models.
+          effort = reasoning_effort_for(model)
+          request_parameters[:reasoning] = { effort: effort } if effort
+
+          raw_response = client.responses.create(parameters: request_parameters)
 
           # If streaming, Ruby OpenAI does not return anything, so to normalize this method's API, we search
           # for the "response chunk" in the stream and return it (it is already parsed)
