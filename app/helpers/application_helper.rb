@@ -186,13 +186,6 @@ module ApplicationHelper
     type == "external" ? "claw" : "ai"
   end
 
-  # Composer dropdowns have to disappear into the prompt bar rather than look
-  # like form fields, so they carry no border, no ring and no background.
-  def composer_select_classes
-    "text-xs text-secondary bg-transparent border-0 rounded-md py-0.5 pl-1 pr-5 " \
-      "focus:ring-0 focus:text-primary hover:text-primary cursor-pointer disabled:cursor-not-allowed"
-  end
-
   def default_ai_model
     # Always return a valid model, never nil or empty
     # Delegates to Chat.default_model for consistency

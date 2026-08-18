@@ -8,7 +8,8 @@ de:
       disclaimer: "KI-Antworten dienen nur zur Information. Keine Finanzberatung!"
       coming_soon: Kommt bald
       model_title: "Modell"
-      effort_title: "Denktiefe"
+      effort_aria: "Denktiefe: %{depth}"
+      effort_locked: "Die Denktiefe ist in der Serverkonfiguration festgelegt"
       effort_default: "Standard"
       effort_none: "Ohne Denken"
       effort_low: "Niedrig"
