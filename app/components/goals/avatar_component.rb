@@ -19,7 +19,11 @@ class Goals::AvatarComponent < ApplicationComponent
   def initialize(goal: nil, name: nil, color: nil, icon: nil, size: "md")
     @goal = goal
     @name = name || goal&.name
-    @color = color || goal&.color || Goal::COLORS.first
+    # color_for(name) rather than COLORS.first: without it every goal that has
+    # not had a color picked renders the same orange, which is exactly the case
+    # for goals created outside the form (the new-goal controller samples a
+    # color, nothing else does).
+    @color = color.presence || goal&.color.presence || self.class.color_for(@name)
     @icon = icon || goal&.icon
     @size = SIZES.key?(size) ? size : "md"
   end

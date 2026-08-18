@@ -27,6 +27,27 @@ class DS::ProgressRingTest < ViewComponent::TestCase
     assert_no_selector "[role='progressbar']"
   end
 
+  test "an explicit hex color overrides the tone" do
+    render_inline(DS::ProgressRing.new(percent: 50, tone: :neutral, color: "#4da568"))
+    assert_selector "svg circle[stroke='#4da568']"
+  end
+
+  test "an explicit CSS variable color overrides the tone" do
+    render_inline(DS::ProgressRing.new(percent: 50, tone: :neutral, color: "var(--color-blue-500)"))
+    assert_selector "svg circle[stroke='var(--color-blue-500)']"
+  end
+
+  test "a color that is neither a hex literal nor a CSS variable falls back to the tone" do
+    render_inline(DS::ProgressRing.new(percent: 50, tone: :success, color: "red; content: 'x'"))
+    assert_selector "svg circle[stroke='var(--color-success)']"
+    assert_no_selector "svg circle[stroke*='content']"
+  end
+
+  test "nil color leaves the tone in charge" do
+    render_inline(DS::ProgressRing.new(percent: 50, tone: :warning, color: nil))
+    assert_selector "svg circle[stroke='var(--color-warning)']"
+  end
+
   test "tone selects the arc stroke color token" do
     assert_equal "var(--color-success)", DS::ProgressRing.new(percent: 1, tone: :success).stroke_color
     assert_equal "var(--color-warning)", DS::ProgressRing.new(percent: 1, tone: :warning).stroke_color

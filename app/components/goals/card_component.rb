@@ -19,6 +19,18 @@ class Goals::CardComponent < ApplicationComponent
     end
   end
 
+  # A goal without a target date has no pace, so :no_target_date fell through
+  # to the neutral tone — the same flat grey at 0% and at 70%. Give those rings
+  # the goal's own color instead. Status still wins where status exists:
+  # :behind stays warning and :reached stays success, because an alert and a
+  # completion outrank identity. Matches goals/show, whose donut has always
+  # filled with goal.color.
+  def ring_color
+    return nil unless goal.status == :no_target_date
+
+    goal.color.presence || Goals::AvatarComponent.color_for(goal.name)
+  end
+
   def linked_accounts
     @linked_accounts ||= goal.linked_accounts.to_a
   end
