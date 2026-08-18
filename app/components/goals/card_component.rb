@@ -20,15 +20,20 @@ class Goals::CardComponent < ApplicationComponent
   end
 
   # A goal without a target date has no pace, so :no_target_date fell through
-  # to the neutral tone — the same flat grey at 0% and at 70%. Give those rings
-  # the goal's own color instead. Status still wins where status exists:
-  # :behind stays warning and :reached stays success, because an alert and a
-  # completion outrank identity. Matches goals/show, whose donut has always
-  # filled with goal.color.
+  # to the neutral tone — the same flat grey at 0% and at 70%. Those rings now
+  # read as progress: red when empty, green when full, continuous between.
+  #
+  # Deliberately not the goal's own color. Category::COLORS contains a red and
+  # a green, so identity coloring put a 70%-full goal in red next to a 43%-full
+  # one in green, which reads as a verdict that was never intended.
+  #
+  # Status still wins where status exists: :behind stays warning and :reached
+  # stays success. A missed deadline is a stronger signal than how full the pot
+  # happens to be.
   def ring_color
     return nil unless goal.status == :no_target_date
 
-    goal.color.presence || Goals::AvatarComponent.color_for(goal.name)
+    DS::ProgressRing.scale_color(progress_percent)
   end
 
   def linked_accounts
