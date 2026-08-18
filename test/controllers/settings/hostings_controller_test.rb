@@ -446,6 +446,36 @@ class Settings::HostingsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "stores a valid reasoning effort" do
+    with_self_hosting do
+      patch settings_hosting_url, params: { setting: { openai_reasoning_effort: "xhigh" } }
+
+      assert_redirected_to settings_hosting_url
+      assert_equal "xhigh", Setting.openai_reasoning_effort
+    end
+  end
+
+  test "ignores an unrecognized reasoning effort rather than storing it" do
+    with_self_hosting do
+      Setting.openai_reasoning_effort = "high"
+
+      patch settings_hosting_url, params: { setting: { openai_reasoning_effort: "turbo" } }
+
+      assert_redirected_to settings_hosting_url
+      assert_nil Setting.openai_reasoning_effort
+    end
+  end
+
+  test "clears the reasoning effort when the default option is submitted" do
+    with_self_hosting do
+      Setting.openai_reasoning_effort = "max"
+
+      patch settings_hosting_url, params: { setting: { openai_reasoning_effort: "" } }
+
+      assert_nil Setting.openai_reasoning_effort
+    end
+  end
+
   test "ignores invalid assistant type values" do
     with_self_hosting do
       patch settings_hosting_url, params: { family: { assistant_type: "hacked" } }

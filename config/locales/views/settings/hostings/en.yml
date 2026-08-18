@@ -133,6 +133,16 @@ en:
         json_mode_none: None (best for standard models)
         json_mode_json_object: JSON Object
         json_mode_help: "Strict mode works best with thinking models (qwen-thinking, deepseek-reasoner). None mode works best with standard models (llama, mistral, gpt-oss)."
+        reasoning_effort_label: Reasoning Effort (Optional)
+        reasoning_effort_default: Provider default
+        reasoning_effort_none: None (fastest, no thinking)
+        reasoning_effort_low: Low
+        reasoning_effort_medium: Medium
+        reasoning_effort_high: High
+        reasoning_effort_xhigh: Extra high
+        reasoning_effort_max: Max (slowest, most thorough)
+        reasoning_effort_help: "How long the model thinks before answering. Higher settings cost more tokens and take longer, and pay off on multi-step questions rather than simple lookups."
+        reasoning_effort_unsupported: "The configured model (%{model}) does not accept a reasoning effort, so this setting is ignored."
         budget_heading: Token Budget
         budget_description: Applies to OpenAI-compatible calls (chat, auto-categorization, merchant detection, and PDF processing). Defaults are conservative for small-context local models. Raise for cloud models with larger context windows.
         context_window_label: Context Window (Optional)
