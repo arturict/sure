@@ -92,6 +92,22 @@
       <%= render DS::Alert.new(variant: "info", message: t(".pending_pledges_callout"), live: :polite) %>
     <% end %>
 
+    <%# Over-earmarked accounts. Goal#backing_share_for already scales fixed
+        earmarks down pro-rata when they exceed the balance, which keeps the
+        math right but makes every affected ring quietly understate itself.
+        Warn instead of blocking: balances move on their own (a pending import,
+        a spend), so an earmark that was valid yesterday can be over today. %>
+    <% if @over_earmarked.any? %>
+      <%= render DS::Alert.new(
+            variant: "warning",
+            title: t(".over_earmarked_callout.title"),
+            message: t(".over_earmarked_callout.message",
+                       count: @over_earmarked.size,
+                       accounts: @over_earmarked.map { |account, over| "#{account.name} (+#{over.format})" }.to_sentence),
+            live: :polite
+          ) %>
+    <% end %>
+
     <%# Goals section %>
     <section data-controller="goals-filter"
              data-goals-filter-empty-query-value="<%= t(".search.empty_with_query", query: "__QUERY__") %>"

@@ -13,6 +13,11 @@ en:
       new_goal: New goal
       empty_filtered: No goals match.
       pending_pledges_callout: You have pending pledges. Sure will confirm them on the next sync.
+      over_earmarked_callout:
+        title: Earmarks exceed the account balance
+        message:
+          one: "%{accounts} has more earmarked to goals than it currently holds. Every goal backed by it is scaled down proportionally, so those rings understate what you set aside."
+          other: "%{accounts} have more earmarked to goals than they currently hold. Every goal backed by them is scaled down proportionally, so those rings understate what you set aside."
       kpi:
         contributed_label: Contributed · last 30d
         velocity_delta_up: "↑ %{percent}%% vs. prior 30d"
