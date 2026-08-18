@@ -1,4 +1,5 @@
 class ChatsController < ApplicationController
+  include AiComposerOptions
   include ActionView::RecordIdentifier
 
   before_action :set_chat, only: [ :show, :edit, :update, :destroy ]
@@ -19,6 +20,7 @@ class ChatsController < ApplicationController
   end
 
   def create
+    persist_reasoning_effort!
     @chat = Current.user.chats.start!(chat_params[:content], model: chat_params[:ai_model])
     set_last_viewed_chat(@chat)
     redirect_to chat_path(@chat, thinking: true)

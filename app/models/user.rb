@@ -210,6 +210,21 @@ class User < ApplicationRecord
     ai_enabled && ai_available?
   end
 
+  # The composer's reasoning-effort choice, sticky across messages the way the
+  # model choice is. Kept in preferences rather than on the message so the
+  # feature needs no migration; the instance-wide Setting stays the fallback
+  # for users who never touch the dropdown.
+  def ai_reasoning_effort
+    value = preferences&.dig("ai_reasoning_effort")
+    value if Provider::Openai::REASONING_EFFORTS.include?(value)
+  end
+
+  def ai_reasoning_effort=(value)
+    normalized = value.presence
+    normalized = nil unless Provider::Openai::REASONING_EFFORTS.include?(normalized)
+    self.preferences = (preferences || {}).merge("ai_reasoning_effort" => normalized)
+  end
+
   def self.default_ui_layout
     layout = Rails.application.config.x.ui&.default_layout || "dashboard"
     layout.in?(%w[intro dashboard]) ? layout : "dashboard"

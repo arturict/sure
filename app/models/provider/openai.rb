@@ -90,11 +90,18 @@ class Provider::Openai < Provider
   end
 
   # Configured effort, or nil to let the provider apply its own default.
-  # Priority matches the other LLM budgets: explicit ENV > Setting. A custom
-  # OpenAI-compatible endpoint manages its own model capabilities, so the
-  # prefix check is skipped there and the operator's choice is passed through.
-  def reasoning_effort_for(model)
-    configured = ENV.fetch("OPENAI_REASONING_EFFORT") { Setting.openai_reasoning_effort }.presence
+  #
+  # ENV > per-request override > Setting. ENV stays on top because the settings
+  # form treats it as an operator lock and disables the field when it is set;
+  # a composer dropdown must not quietly defeat that. Below it, the caller's
+  # explicit choice beats the instance-wide default.
+  #
+  # A custom OpenAI-compatible endpoint manages its own model capabilities, so
+  # the prefix check is skipped there and the operator's choice is passed on.
+  def reasoning_effort_for(model, override: nil)
+    configured = ENV["OPENAI_REASONING_EFFORT"].presence ||
+      override.presence ||
+      Setting.openai_reasoning_effort.presence
     return nil unless REASONING_EFFORTS.include?(configured)
     return nil unless custom_provider? || self.class.supports_reasoning_effort?(model)
 
@@ -319,7 +326,8 @@ class Provider::Openai < Provider
     previous_response_id: nil,
     session_id: nil,
     user_identifier: nil,
-    family: nil
+    family: nil,
+    reasoning_effort: nil
   )
     if supports_responses_endpoint?
       # Native path uses the Responses API which chains history via
@@ -336,7 +344,8 @@ class Provider::Openai < Provider
         previous_response_id: previous_response_id,
         session_id: session_id,
         user_identifier: user_identifier,
-        family: family
+        family: family,
+        reasoning_effort: reasoning_effort
       )
     else
       generic_chat_response(
@@ -392,7 +401,8 @@ class Provider::Openai < Provider
       previous_response_id: nil,
       session_id: nil,
       user_identifier: nil,
-      family: nil
+      family: nil,
+      reasoning_effort: nil
     )
       with_provider_response do
         chat_config = ChatConfig.new(
@@ -432,7 +442,7 @@ class Provider::Openai < Provider
 
           # Omitted rather than sent as nil: the Responses API rejects the key
           # outright on non-reasoning models.
-          effort = reasoning_effort_for(model)
+          effort = reasoning_effort_for(model, override: reasoning_effort)
           request_params[:reasoning] = { effort: effort } if effort
 
           raw_response = client.responses.create(parameters: request_params)

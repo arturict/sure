@@ -46,6 +46,24 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
     assert_not Provider::Openai.supports_reasoning_effort?(nil)
   end
 
+  test "a per-request override beats the stored setting" do
+    Setting.stubs(:openai_reasoning_effort).returns("low")
+
+    assert_equal "max", @openai.reasoning_effort_for("gpt-5.6-luna", override: "max")
+  end
+
+  test "ENV beats a per-request override so the operator lock holds" do
+    Setting.stubs(:openai_reasoning_effort).returns("low")
+
+    with_env_overrides OPENAI_REASONING_EFFORT: "medium" do
+      assert_equal "medium", @openai.reasoning_effort_for("gpt-5.6-luna", override: "max")
+    end
+  end
+
+  test "an override is still dropped for a model that cannot reason" do
+    assert_nil @openai.reasoning_effort_for("gpt-4.1", override: "max")
+  end
+
   test "openai errors are automatically raised" do
     VCR.use_cassette("openai/chat/error") do
       response = @openai.chat_response("Test", model: "invalid-model-that-will-trigger-api-error")

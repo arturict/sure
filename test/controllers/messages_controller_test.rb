@@ -6,6 +6,34 @@ class MessagesControllerTest < ActionDispatch::IntegrationTest
     @chat = @user.chats.first
   end
 
+  test "the composer's reasoning effort is stored on the user" do
+    post chat_messages_url(@chat), params: {
+      message: { content: "Hello", ai_model: "gpt-5.6-luna" },
+      reasoning_effort: "xhigh"
+    }
+
+    assert_equal "xhigh", @user.reload.ai_reasoning_effort
+  end
+
+  test "an unrecognized reasoning effort clears rather than sticks" do
+    @user.update!(ai_reasoning_effort: "high")
+
+    post chat_messages_url(@chat), params: {
+      message: { content: "Hello", ai_model: "gpt-5.6-luna" },
+      reasoning_effort: "turbo"
+    }
+
+    assert_nil @user.reload.ai_reasoning_effort
+  end
+
+  test "omitting the reasoning effort leaves the stored choice alone" do
+    @user.update!(ai_reasoning_effort: "max")
+
+    post chat_messages_url(@chat), params: { message: { content: "Hello", ai_model: "gpt-5.6-luna" } }
+
+    assert_equal "max", @user.reload.ai_reasoning_effort
+  end
+
   test "can create a message" do
     post chat_messages_url(@chat), params: { message: { content: "Hello", ai_model: "gpt-4.1" } }
 
