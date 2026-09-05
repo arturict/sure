@@ -1,5 +1,35 @@
 # Repository Guidelines
 
+## Astra working defaults
+
+These instructions are tuned for GPT-6 Astra. They guide execution; they do not
+change the selected runtime model or expand access and external-action authority.
+
+- Infer the intended outcome from the full conversation. Treat actionable
+  requests such as “can you fix” as authorization to do the scoped work. Continue
+  through implementation and verification; answer pure advice questions as advice.
+- Resolve routine choices from evidence and state material assumptions. Ask only
+  when an unresolved answer changes scope, correctness, cost, or authority.
+  Continue independent work while waiting; incorporate steering without restarting.
+- Complete authorized preparation before seeking final approval. Reuse earlier
+  authorization; preserve the explicit deployment, communication, purchase,
+  privacy, and destructive-action limits below. Do not invent permission gates.
+- User instructions outrank skill guidelines, subject to system/developer rules.
+  If a skill blocks progress, link its exact `SKILL.md`, quote the relevant rule,
+  and explain the concrete conflict; do not present an interpretation as a rule.
+- Delegate independent investigations, disjoint edits, or reviews when parallel
+  work saves time or improves quality. Give each worker a bounded outcome and
+  file ownership; integrate centrally. Respect harness limits and explicit user
+  model choices. Skip delegation overhead for a short, coupled task.
+- Use the smallest meaningful verification for the change and complete applicable
+  repository gates. For instruction-only edits, inspect conflicts, paths, diffs
+  and secrets; skip application builds unless runtime behavior is affected.
+  Repeat passing checks only after a relevant change or new evidence. Do not add
+  tests that merely restate implementation or remove useful behavioral coverage.
+- Lead with the result in concise, plain prose. Use lists when they help scanning;
+  avoid canned summaries, jargon and performative narration. Report what changed,
+  what was verified, and material limits; never turn a local check into a live claim.
+
 ## Project Structure & Module Organization
 - Code: `app/` (Rails MVC, services, jobs, mailers, components), JS in `app/javascript/`, styles/assets in `app/assets/` (Tailwind, images, fonts).
 - Config: `config/`, environment examples in `.env.local.example` and `.env.test.example`.
@@ -23,12 +53,14 @@
 
 ## Testing Guidelines
 - Framework: Minitest (Rails). Name files `*_test.rb` and mirror `app/` structure.
-- Run: `bin/rails test` locally and ensure green before pushing.
+- For runtime changes, run relevant Minitest coverage and the required CI gate
+  before merge. Instruction-only edits require diff/link checks, not Rails boot.
 - Fixtures/VCR: Use `test/fixtures` and existing VCR cassettes for HTTP. Prefer unit tests plus focused integration tests.
 
 ## Commit & Pull Request Guidelines
 - Commits: Imperative subject ≤ 72 chars (e.g., "Add account balance validation"). Include rationale in body and reference issues (`#123`).
-- PRs: Clear description, linked issues, screenshots for UI changes, and migration notes if applicable. Ensure CI passes, tests added/updated, and `rubocop`/Biome are clean.
+- PRs: Clear description, linked issues, screenshots for UI changes, and migration notes if applicable. Keep required CI green; add/update behavioral tests when behavior changes and
+  run `rubocop`/Biome for affected code. Instruction-only edits use document checks.
 
 ## Security & Configuration Tips
 - Never commit secrets. Start from `.env.local.example`; use `.env.local` for development only.
