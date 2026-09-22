@@ -51,7 +51,7 @@ class Chat < ApplicationRecord
       prompt.first(80)
     end
 
-    # "gpt-5.6-luna" reads as noise in a dropdown; "5.6 Luna" is what the model
+    # "gpt-6-luna" reads as noise in a dropdown; "6 Luna" is what the model
     # is actually called. The vendor prefix is dropped and the remainder title
     # cased, leaving version numbers alone. Anything that does not look like a
     # vendor-prefixed id is shown verbatim rather than mangled.

@@ -9,13 +9,13 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
   end
 
   test "reasoning effort is nil unless one is configured" do
-    assert_nil @openai.reasoning_effort_for("gpt-5.6-luna")
+    assert_nil @openai.reasoning_effort_for("gpt-6-luna")
   end
 
   test "a configured reasoning effort applies to reasoning-capable models" do
     Setting.stubs(:openai_reasoning_effort).returns("xhigh")
 
-    assert_equal "xhigh", @openai.reasoning_effort_for("gpt-5.6-luna")
+    assert_equal "xhigh", @openai.reasoning_effort_for("gpt-6-luna")
     assert_equal "xhigh", @openai.reasoning_effort_for("o3-mini")
   end
 
@@ -28,35 +28,41 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
   test "an unrecognized reasoning effort is ignored rather than sent" do
     Setting.stubs(:openai_reasoning_effort).returns("turbo")
 
-    assert_nil @openai.reasoning_effort_for("gpt-5.6-luna")
+    assert_nil @openai.reasoning_effort_for("gpt-6-luna")
   end
 
   test "ENV wins over the stored reasoning effort" do
     Setting.stubs(:openai_reasoning_effort).returns("low")
 
     with_env_overrides OPENAI_REASONING_EFFORT: "max" do
-      assert_equal "max", @openai.reasoning_effort_for("gpt-5.6-luna")
+      assert_equal "max", @openai.reasoning_effort_for("gpt-6-luna")
     end
   end
 
   test "supports_reasoning_effort? covers the reasoning families only" do
+    assert Provider::Openai.supports_reasoning_effort?("gpt-6-luna")
     assert Provider::Openai.supports_reasoning_effort?("gpt-5.6-luna")
     assert Provider::Openai.supports_reasoning_effort?("o1-preview")
     assert_not Provider::Openai.supports_reasoning_effort?("gpt-4.1")
     assert_not Provider::Openai.supports_reasoning_effort?(nil)
   end
 
+  test "the standard provider accepts GPT-6 models alongside GPT-5" do
+    assert @openai.supports_model?("gpt-6-luna")
+    assert @openai.supports_model?("gpt-5.6-luna")
+  end
+
   test "a per-request override beats the stored setting" do
     Setting.stubs(:openai_reasoning_effort).returns("low")
 
-    assert_equal "max", @openai.reasoning_effort_for("gpt-5.6-luna", override: "max")
+    assert_equal "max", @openai.reasoning_effort_for("gpt-6-luna", override: "max")
   end
 
   test "ENV beats a per-request override so the operator lock holds" do
     Setting.stubs(:openai_reasoning_effort).returns("low")
 
     with_env_overrides OPENAI_REASONING_EFFORT: "medium" do
-      assert_equal "medium", @openai.reasoning_effort_for("gpt-5.6-luna", override: "max")
+      assert_equal "medium", @openai.reasoning_effort_for("gpt-6-luna", override: "max")
     end
   end
 
@@ -329,7 +335,7 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
   end
 
   test "supported_models_description returns model prefixes for standard provider" do
-    expected = "models starting with: gpt-4, gpt-5, o1, o3"
+    expected = "models starting with: gpt-4, gpt-5, gpt-6, o1, o3"
     assert_equal expected, @subject.supported_models_description
   end
 

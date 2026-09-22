@@ -5,15 +5,15 @@ class Provider::Openai < Provider
   Error = Class.new(Provider::Error)
 
   DEFAULT_MODEL = "gpt-4.1".freeze
-  SUPPORTED_MODELS = %w[gpt-4 gpt-5 o1 o3].freeze
-  VISION_CAPABLE_MODEL_PREFIXES = %w[gpt-4o gpt-4-turbo gpt-4.1 gpt-5 o1 o3].freeze
+  SUPPORTED_MODELS = %w[gpt-4 gpt-5 gpt-6 o1 o3].freeze
+  VISION_CAPABLE_MODEL_PREFIXES = %w[gpt-4o gpt-4-turbo gpt-4.1 gpt-5 gpt-6 o1 o3].freeze
 
   # How long the model is allowed to think before answering. Ordered cheapest
   # to most thorough; "none" skips reasoning entirely. Only the reasoning
   # families accept it — sending it to gpt-4.1 is an API error, so
   # #reasoning_effort_for returns nil there and the key is omitted.
   REASONING_EFFORTS = %w[none low medium high xhigh max].freeze
-  REASONING_CAPABLE_MODEL_PREFIXES = %w[gpt-5 o1 o3].freeze
+  REASONING_CAPABLE_MODEL_PREFIXES = %w[gpt-5 gpt-6 o1 o3].freeze
 
   def self.supports_reasoning_effort?(model)
     REASONING_CAPABLE_MODEL_PREFIXES.any? { |prefix| model.to_s.start_with?(prefix) }
