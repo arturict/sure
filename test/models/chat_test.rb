@@ -2,6 +2,7 @@ require "test_helper"
 
 class ChatTest < ActiveSupport::TestCase
   test "humanize_model drops the vendor prefix and leaves version numbers alone" do
+    assert_equal "6 Luna", Chat.humanize_model("gpt-6-luna")
     assert_equal "5.6 Luna", Chat.humanize_model("gpt-5.6-luna")
     assert_equal "5.6 Sol", Chat.humanize_model("gpt-5.6-sol")
     assert_equal "4.1", Chat.humanize_model("gpt-4.1")

@@ -21,6 +21,8 @@ class LlmUsage < ApplicationRecord
       # 4o
       "gpt-4o" => { prompt: 2.50, completion: 10.00 },
       "gpt-4o-mini" => { prompt: 0.15, completion: 0.60 },
+      # GPT-6 models (standard tier, verified on OpenAI's pricing page 2026-09-22)
+      "gpt-6-luna" => { prompt: 0.10, completion: 0.50 },
       # GPT-5 models
       "gpt-5.6-sol" => { prompt: 5.00, completion: 30.00 },
       "gpt-5.6-terra" => { prompt: 2.50, completion: 15.00 },

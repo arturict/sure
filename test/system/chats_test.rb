@@ -20,7 +20,7 @@ class ChatsTest < ApplicationSystemTestCase
     # The composer offers the picker only for a reasoning-capable model, and it
     # takes that from the conversation's last message rather than the install
     # default, so the fixture's gpt-4.1 has to move too.
-    chat.messages.update_all(ai_model: "gpt-5.6-luna")
+    chat.messages.update_all(ai_model: "gpt-6-luna")
     chat
   end
 
@@ -41,7 +41,7 @@ class ChatsTest < ApplicationSystemTestCase
   end
 
   test "changing the thinking depth from a chat page keeps the panel intact" do
-    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-5.6-luna" do
+    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-6-luna" do
       visit chat_url(prepare_reasoning_chat)
 
       choose_depth("effort_high")
@@ -52,7 +52,7 @@ class ChatsTest < ApplicationSystemTestCase
   end
 
   test "changing the thinking depth from the dashboard keeps the panel intact" do
-    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-5.6-luna" do
+    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-6-luna" do
       chat = prepare_reasoning_chat
       @user.update!(last_viewed_chat: chat) if @user.respond_to?(:last_viewed_chat=)
 
@@ -67,7 +67,7 @@ class ChatsTest < ApplicationSystemTestCase
   end
 
   test "the chat stays usable after switching depth twice" do
-    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-5.6-luna" do
+    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-6-luna" do
       visit chat_url(prepare_reasoning_chat)
 
       choose_depth("effort_max")

@@ -37,6 +37,12 @@ class LlmUsageTest < ActiveSupport::TestCase
     assert_in_delta 0.5, nano, 0.0001
   end
 
+  test "calculate_cost prices GPT-6 Luna at its own rate" do
+    luna = LlmUsage.calculate_cost(model: "gpt-6-luna", prompt_tokens: 1_000_000, completion_tokens: 1_000_000)
+    assert_in_delta 0.6, luna, 0.0001
+    assert_equal "openai", LlmUsage.infer_provider("gpt-6-luna")
+  end
+
   test "calculate_cost prices snapshot model IDs with the most specific OpenAI prefix" do
     mini = LlmUsage.calculate_cost(
       model: "gpt-5.4-mini-2026-03-17",
