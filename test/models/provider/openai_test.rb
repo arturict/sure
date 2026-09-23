@@ -25,6 +25,13 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
     assert_nil @openai.reasoning_effort_for("gpt-4.1")
   end
 
+  test "none becomes low for GPT-6 Astra, which cannot skip reasoning" do
+    Setting.stubs(:openai_reasoning_effort).returns("none")
+
+    assert_equal "low", @openai.reasoning_effort_for("gpt-6-astra")
+    assert_equal "none", @openai.reasoning_effort_for("gpt-6-luna")
+  end
+
   test "an unrecognized reasoning effort is ignored rather than sent" do
     Setting.stubs(:openai_reasoning_effort).returns("turbo")
 

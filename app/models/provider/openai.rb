@@ -104,6 +104,9 @@ class Provider::Openai < Provider
       Setting.openai_reasoning_effort.presence
     return nil unless REASONING_EFFORTS.include?(configured)
     return nil unless custom_provider? || self.class.supports_reasoning_effort?(model)
+    # GPT-6 Astra always reasons and rejects "none"; OpenAI's migration guide
+    # maps it to "low", the smallest effort Astra accepts.
+    return "low" if configured == "none" && model.to_s.start_with?("gpt-6-astra")
 
     configured
   end
