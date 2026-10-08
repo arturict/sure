@@ -1,0 +1,35 @@
+<div class="chat-model-picker" data-chat-model-picker-target="menu">
+  <% if choice? %>
+    <%= render DS::Menu.new(variant: :button, placement: placement, mobile_fullwidth: false) do |menu| %>
+      <% menu.with_button(
+           type: "button",
+           class: "inline-flex items-center gap-1 bg-container border border-secondary font-medium rounded-lg pl-2.5 pr-1.5 py-1 text-xs cursor-pointer text-primary hover:bg-container-inset-hover focus:outline-hidden focus:ring-0",
+           title: t("messages.chat_form.model_title"),
+           aria: { label: t("messages.chat_form.model_aria", model: label_for(selected)) },
+           data: { chat_model_picker_target: "button" }
+         ) do %>
+        <span class="whitespace-nowrap" data-chat-model-picker-target="label"><%= label_for(selected) %></span>
+        <%= helpers.icon("chevron-down", size: "sm") %>
+      <% end %>
+
+      <% models.each do |model| %>
+        <% menu.with_item(
+             variant: :link,
+             text: label_for(model),
+             href: "#",
+             selected: model == selected,
+             data: {
+               action: "chat-model-picker#select",
+               chat_model_picker_model_param: model,
+               chat_model_picker_label_param: label_for(model),
+               chat_model_picker_effort_param: supports_effort?(model)
+             }
+           ) %>
+      <% end %>
+    <% end %>
+  <% else %>
+    <span class="text-xs text-secondary px-1.5 whitespace-nowrap" title="<%= t("messages.chat_form.model_title") %>">
+      <%= label_for(selected) %>
+    </span>
+  <% end %>
+</div>

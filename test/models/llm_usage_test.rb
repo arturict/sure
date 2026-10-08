@@ -96,6 +96,34 @@ class LlmUsageTest < ActiveSupport::TestCase
     assert_in_delta 6.0, cost, 0.0001
   end
 
+  test "calculate_cost prices Claude Sonnet 5.5 and its cache reads" do
+    # $2 in + $10 out per million tokens.
+    assert_in_delta 12.0, LlmUsage.calculate_cost(model: "claude-sonnet-5-5", prompt_tokens: 1_000_000, completion_tokens: 1_000_000), 0.0001
+
+    # Cache reads bill at 0.1x the input rate: $0.20 per million.
+    read = LlmUsage.calculate_cost(model: "claude-sonnet-5-5", prompt_tokens: 0, completion_tokens: 0, cache_read_tokens: 1_000_000)
+    assert_in_delta 0.20, read, 0.0001
+  end
+
+  test "calculate_cost prices Claude Haiku 5.5 by prompt size" do
+    # Up to 100K input tokens: $0.10 in, $0.50 out per million.
+    small = LlmUsage.calculate_cost(model: "claude-haiku-5-5", prompt_tokens: 100_000, completion_tokens: 10_000)
+    assert_in_delta 0.015, small, 0.000001
+
+    # Beyond 100K the whole request moves to $0.50 in, $2.50 out.
+    large = LlmUsage.calculate_cost(model: "claude-haiku-5-5", prompt_tokens: 100_001, completion_tokens: 10_000)
+    assert_in_delta 0.0750005, large, 0.000001
+
+    # Cached input counts towards the threshold too.
+    cached = LlmUsage.calculate_cost(model: "claude-haiku-5-5", prompt_tokens: 1_000, completion_tokens: 0, cache_read_tokens: 150_000)
+    assert_in_delta (1_000 * 0.50 + 150_000 * 0.05) / 1_000_000.0, cached, 0.000001
+  end
+
+  test "calculate_cost keeps Claude Haiku 4.5 apart from Haiku 5.5" do
+    assert_equal "anthropic", LlmUsage.infer_provider("claude-haiku-5-5")
+    assert_in_delta 6.0, LlmUsage.calculate_cost(model: "claude-haiku-4-5", prompt_tokens: 1_000_000, completion_tokens: 1_000_000), 0.0001
+  end
+
   test "calculate_cost prices Anthropic cache tokens relative to the input rate" do
     # Sonnet input is $3/MTok → cache write 1.25x = $3.75/MTok, read 0.1x = $0.30/MTok.
     write = LlmUsage.calculate_cost(model: "claude-sonnet-4-6", prompt_tokens: 0, completion_tokens: 0, cache_creation_tokens: 1_000_000)

@@ -7,3 +7,6 @@ en:
       misconfigured: "The AI provider is not configured correctly. Please contact your administrator."
       no_response: "The assistant didn't respond. The background worker may be down or AI may not be fully configured. Please try again."
       default: "Failed to generate a response. Please try again."
+    notices:
+      refusal: "The model declined to answer this request. Try rephrasing it, or pick a different model."
+      max_tokens: "The answer was cut off because it reached the response length limit."

@@ -56,9 +56,19 @@ class LlmUsage < ApplicationRecord
       "gemini-2.5-pro" => { prompt: 1.25, completion: 10.00 },
       "gemini-2.5-flash" => { prompt: 0.3, completion: 2.50 }
     },
-    # Anthropic pricing per 1M tokens (Claude 4.x family, as of May 2026)
+    # Anthropic pricing per 1M tokens (Claude 4.x family, as of May 2026;
+    # Claude 5.5 rows checked 2026-10-08)
     # Source: https://www.anthropic.com/pricing
+    #
+    # A `long_context` tier replaces the base rates for the whole request once
+    # its input (uncached, cache writes and cache reads together) passes
+    # `above` tokens. Haiku 5.5 is priced that way above 100K input tokens.
     "anthropic" => {
+      "claude-sonnet-5-5" => { prompt: 2.00, completion: 10.00 },
+      "claude-haiku-5-5" => {
+        prompt: 0.10, completion: 0.50,
+        long_context: { above: 100_000, prompt: 0.50, completion: 2.50 }
+      },
       "claude-opus-4-7" => { prompt: 15.00, completion: 75.00 },
       "claude-opus-4-6" => { prompt: 15.00, completion: 75.00 },
       "claude-sonnet-4-6" => { prompt: 3.00, completion: 15.00 },
@@ -77,6 +87,11 @@ class LlmUsage < ApplicationRecord
     unless pricing
       Rails.logger.info("No pricing found for model: #{model} (inferred provider: #{provider})")
       return nil
+    end
+
+    long_context = pricing[:long_context]
+    if long_context && (prompt_tokens.to_i + cache_creation_tokens.to_i + cache_read_tokens.to_i) > long_context[:above]
+      pricing = long_context
     end
 
     # Pricing is per 1M tokens, so divide by 1_000_000

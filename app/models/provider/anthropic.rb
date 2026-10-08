@@ -11,6 +11,39 @@ class Provider::Anthropic < Provider
   # All Claude 3.5+ and 4.x models accept native document content blocks.
   VISION_CAPABLE_MODEL_PREFIXES = %w[claude].freeze
 
+  # Offered in the chat composer next to the install's default model whenever
+  # an Anthropic key is configured. Exact ids, no date suffix.
+  CHAT_MODELS = %w[claude-haiku-5-5 claude-sonnet-5-5].freeze
+
+  # The Claude 5 generation takes `output_config.effort` (low through max) and
+  # thinks adaptively by default. Older Claude models either reject effort
+  # (Haiku 4.5, Sonnet 4.5) or support a smaller set, so they get nothing.
+  EFFORT_CAPABLE_MODEL_PATTERN = /\Aclaude-(?:haiku|sonnet|opus|fable)-5(?:-|\z)/
+
+  # Sure's thinking-depth levels mapped onto Claude's effort levels. Thinking
+  # cannot be switched off on Sonnet 5.5 (`disabled` is a 400) and is worse off
+  # than on at low effort anyway, so "none" asks for the least thinking Claude
+  # offers instead of being dropped.
+  EFFORT_FOR_REASONING_LEVEL = {
+    "none" => "low",
+    "low" => "low",
+    "medium" => "medium",
+    "high" => "high",
+    "xhigh" => "xhigh",
+    "max" => "max"
+  }.freeze
+
+  # Room for adaptive thinking plus the answer. Chat always streams, so a large
+  # ceiling cannot run into the SDK's request timeout, and only generated
+  # tokens are billed. Haiku 5.5 at max effort used about 8K output tokens on
+  # one round of a two-step finance question (observed 2026-10-08).
+  DEFAULT_CHAT_MAX_TOKENS = 64_000
+
+  # The SDK refuses a non-streaming request whose max_tokens could take longer
+  # than its 10-minute timeout (about 21K tokens), so calls without a streamer,
+  # such as title generation, get a ceiling below that.
+  NONSTREAMING_MAX_TOKENS = 16_000
+
   def self.effective_model
     # Use ENV[].presence rather than ENV.fetch(KEY, default) so the Setting
     # lookup is only performed when the ENV var is actually absent — otherwise
@@ -23,6 +56,28 @@ class Provider::Anthropic < Provider
     ENV["ANTHROPIC_ACCESS_TOKEN"].present? ||
       ENV["ANTHROPIC_API_KEY"].present? ||
       Setting.anthropic_access_token.present?
+  end
+
+  # Claude models the composer may offer. A custom Anthropic-compatible
+  # endpoint (Bedrock, Vertex, a proxy) uses its own model ids, so the
+  # first-party ids are only offered against Anthropic itself.
+  def self.chat_models
+    return [] unless configured?
+    return [] if (ENV["ANTHROPIC_BASE_URL"].presence || Setting.anthropic_base_url).present?
+
+    CHAT_MODELS
+  end
+
+  def self.supports_effort?(model)
+    model.to_s.match?(EFFORT_CAPABLE_MODEL_PATTERN)
+  end
+
+  # Translates the user's thinking-depth choice into an effort level, or nil
+  # to leave the model on its own default (Haiku 5.5: medium, Sonnet 5.5: high).
+  def self.effort_for(model, reasoning_effort)
+    return nil unless supports_effort?(model)
+
+    EFFORT_FOR_REASONING_LEVEL[reasoning_effort.to_s]
   end
 
   def initialize(access_token, base_url: nil, model: nil)
@@ -38,6 +93,7 @@ class Provider::Anthropic < Provider
     end
 
     @default_model = model.presence || DEFAULT_MODEL
+    @tool_rounds = {}
   end
 
   def supports_model?(model)
@@ -215,8 +271,6 @@ class Provider::Anthropic < Provider
     session_id: nil,
     user_identifier: nil,
     family: nil,
-    # Accepted for interface parity and ignored: Anthropic expresses thinking
-    # budget as a token count on a different parameter, not as an effort level.
     reasoning_effort: nil
   )
     with_provider_response do
@@ -227,7 +281,9 @@ class Provider::Anthropic < Provider
         function_results: function_results,
         tool_choice: tool_choice,
         conversation_history: conversation_history,
-        default_max_tokens: default_max_tokens
+        messages: tool_round_messages(previous_response_id, function_results),
+        effort: self.class.effort_for(model, reasoning_effort),
+        default_max_tokens: streamer.present? ? default_max_tokens : [ default_max_tokens, NONSTREAMING_MAX_TOKENS ].min
       )
 
       request_params = chat_config.build_request(model: model)
@@ -242,7 +298,7 @@ class Provider::Anthropic < Provider
       partial_usage_recorded = false
 
       begin
-        parsed, usage =
+        raw, parsed, usage =
           if streamer.present?
             stream_chat_response(
               streamer: streamer,
@@ -255,6 +311,8 @@ class Provider::Anthropic < Provider
           else
             sync_chat_response(request_params: request_params)
           end
+
+        remember_tool_round(request_params[:messages], raw, parsed)
 
         log_langfuse_generation(
           name: "chat_response",
@@ -290,18 +348,90 @@ class Provider::Anthropic < Provider
     attr_reader :client
 
     def default_max_tokens
-      ENV.fetch("ANTHROPIC_MAX_TOKENS", 4096).to_i
+      ENV.fetch("ANTHROPIC_MAX_TOKENS", DEFAULT_CHAT_MAX_TOKENS).to_i
+    end
+
+    # One assistant turn can take several tool rounds. With thinking on, every
+    # round's request has to be the previous request's messages, unchanged,
+    # plus that round's complete assistant content (thinking blocks and their
+    # signatures included) and one user message carrying all of its tool
+    # results. Rebuilding the transcript from stored records instead would
+    # drop the thinking blocks and merge the rounds, which Claude 5.5 rejects
+    # as an edited conversation.
+    #
+    # The transcript sent for each tool-using response is kept here, keyed by
+    # the response id the responder hands back as previous_response_id. The
+    # responder holds one provider instance for one assistant turn, so this
+    # lives exactly as long as the turn's tool loop. Earlier turns are rebuilt
+    # from records without their thinking, which drops a leading run of
+    # thinking blocks and is allowed.
+    def tool_round_messages(previous_response_id, function_results)
+      return nil if previous_response_id.blank? || function_results.blank?
+
+      transcript = @tool_rounds[previous_response_id]
+      return nil unless transcript
+
+      tool_use_ids = Array(transcript.last[:content]).filter_map { |block| block[:id] if block[:type] == "tool_use" }
+      # The responder passes every result gathered so far in this turn; only
+      # the ones answering the last round belong in the new user message, and
+      # in the order the model asked for them.
+      results = tool_use_ids.filter_map do |id|
+        function_results.find { |result| result[:call_id] == id }
+      end
+
+      transcript + [ { role: "user", content: results.map { |result| MessageFormatter.tool_result_block(result) } } ]
+    end
+
+    def remember_tool_round(sent_messages, raw, parsed)
+      return if parsed.function_requests.empty?
+
+      @tool_rounds[parsed.id] = sent_messages + [ { role: "assistant", content: replay_content(raw) } ]
+    end
+
+    # The assistant content exactly as the model produced it, in request shape.
+    # Thinking blocks go back verbatim, even with an empty `thinking` string
+    # (the default display omits the text but the signature still counts).
+    # A streamed tool_use carries its input as accumulated JSON text, which is
+    # parsed here because the API wants an object.
+    def replay_content(raw)
+      Array(raw.content).filter_map do |block|
+        case block_attr(block, :type).to_s
+        when "thinking"
+          { type: "thinking", thinking: block_attr(block, :thinking).to_s, signature: block_attr(block, :signature) }
+        when "redacted_thinking"
+          { type: "redacted_thinking", data: block_attr(block, :data) }
+        when "text"
+          text = block_attr(block, :text).to_s
+          { type: "text", text: text } if text.present?
+        when "tool_use"
+          {
+            type: "tool_use",
+            id: block_attr(block, :id),
+            name: block_attr(block, :name),
+            input: MessageFormatter.parse_tool_input(block_attr(block, :input))
+          }
+        end
+      end
+    end
+
+    def block_attr(block, key)
+      if block.respond_to?(key)
+        block.public_send(key)
+      elsif block.is_a?(Hash)
+        block[key] || block[key.to_s]
+      end
     end
 
     def sync_chat_response(request_params:)
       raw = client.messages.create(**request_params)
       parsed = ChatParser.new(raw).parsed
       usage = build_usage_hash(raw.usage)
-      [ parsed, usage ]
+      [ raw, parsed, usage ]
     end
 
     def stream_chat_response(streamer:, request_params:, on_partial: nil)
       final_message = nil
+      streamed_text = false
       stream = client.messages.stream(**request_params)
 
       # If `stream.each` raises mid-iteration (network drop, client abort),
@@ -311,6 +441,7 @@ class Provider::Anthropic < Provider
         stream.each do |event|
           case event
           when ::Anthropic::Streaming::TextEvent
+            streamed_text ||= event.text.present?
             streamer.call(
               Provider::LlmConcept::ChatStreamChunk.new(type: "output_text", data: event.text, usage: nil)
             )
@@ -328,11 +459,19 @@ class Provider::Anthropic < Provider
       parsed = ChatParser.new(final_message).parsed
       usage = build_usage_hash(final_message.usage)
 
+      # The chat only keeps text that arrives as a stream chunk, so a notice
+      # the parser adds (a refusal, a cut-off answer) has to be streamed too.
+      if (notice = ChatParser.stop_notice(final_message))
+        streamer.call(
+          Provider::LlmConcept::ChatStreamChunk.new(type: "output_text", data: streamed_text ? "\n\n#{notice}" : notice, usage: nil)
+        )
+      end
+
       streamer.call(
         Provider::LlmConcept::ChatStreamChunk.new(type: "response", data: parsed, usage: usage)
       )
 
-      [ parsed, usage ]
+      [ final_message, parsed, usage ]
     end
 
     def safe_accumulated_message(stream)

@@ -3,13 +3,13 @@
 <div id="chat-form" class="space-y-2">
   <% model = chat && chat.persisted? ? [chat, Message.new] : Chat.new %>
   <%# Follow-ups default to whatever the conversation has been answered with,
-      so switching model mid-chat sticks instead of snapping back. %>
-  <% selected_model = (chat&.persisted? && chat.messages.last&.ai_model).presence || default_ai_model %>
+      so switching model mid-chat sticks instead of snapping back. Ordered by
+      time: message ids are UUIDs, so a bare `last` picks an arbitrary one. %>
+  <% selected_model = (chat&.persisted? && chat.conversation_messages.ordered.last&.ai_model).presence || default_ai_model %>
 
   <%= form_with model: model,
                 class: "flex lg:flex-col gap-2 bg-container px-2 py-1.5 rounded-full lg:rounded-lg shadow-border-xs",
                 data: { chat_target: "form" } do |f| %>
-
 
     <%= f.text_area :content, placeholder: t(".placeholder"), value: message_hint,
                   class: "w-full border-0 focus:ring-0 text-sm resize-none px-1 bg-transparent",
@@ -17,7 +17,12 @@
                   rows: 1 %>
 
     <div class="flex items-center justify-between gap-1">
-      <div class="flex items-center gap-1">
+      <%# Wraps instead of overflowing: the sidebar is narrow, and two pickers
+          next to the disabled shortcuts would otherwise push the send button
+          out of view. %>
+      <div class="flex flex-wrap items-center gap-1 min-w-0"
+           data-controller="chat-model-picker"
+           data-chat-model-picker-aria-label-value="<%= t(".model_aria", model: "%{model}") %>">
         <div class="items-center gap-1 hidden lg:flex">
           <%# These are disabled for now, but in the future, will all open specific menus with their own context and search %>
           <% ["plus", "command", "at-sign", "mouse-pointer-click"].each do |icon| %>
@@ -28,21 +33,23 @@
         <%# Model and thinking depth belong with the prompt, not three pages away
             in hosting settings. The model rides on the message; the effort is a
             user preference the picker sets on its own. %>
-        <%= f.hidden_field :ai_model, value: selected_model %>
+        <%= f.hidden_field :ai_model, value: selected_model, data: { chat_model_picker_target: "input" } %>
 
-        <%# One configured model is a fact, not a choice, so it is shown rather
-            than offered. A picker returns here the day a second model is worth
-            paying for. %>
-        <span class="text-xs text-secondary px-1.5 whitespace-nowrap" title="<%= t(".model_title") %>">
-          <%= Chat.humanize_model(selected_model) %>
-        </span>
+        <%# The install default, plus the Claude models when an Anthropic key is
+            configured. A single model is shown as a label, not offered. %>
+        <% offered_models = Chat.offered_models(selected_model) %>
+        <%= render UI::ModelPicker.new(models: offered_models, selected: selected_model) %>
 
-        <% if Provider::Openai.supports_reasoning_effort?(selected_model) %>
-          <%= render UI::EffortPicker.new(selected: Current.user.ai_reasoning_effort) %>
+        <%# Rendered for every offered model that takes a depth and hidden for the
+            rest, so switching model in the browser can show or hide it. %>
+        <% if offered_models.any? { |m| Chat.supports_reasoning_effort?(m) } %>
+          <div class="<%= "hidden" unless Chat.supports_reasoning_effort?(selected_model) %>" data-chat-model-picker-target="effort">
+            <%= render UI::EffortPicker.new(selected: Current.user.ai_reasoning_effort) %>
+          </div>
         <% end %>
       </div>
 
-      <%= icon("arrow-up", as_button: true, type: "submit",
+      <%= icon("arrow-up", as_button: true, type: "submit", class: "shrink-0",
               data: { chat_target: "submit" }) %>
     </div>
   <% end %>

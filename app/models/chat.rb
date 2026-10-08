@@ -55,11 +55,32 @@ class Chat < ApplicationRecord
     # is actually called. The vendor prefix is dropped and the remainder title
     # cased, leaving version numbers alone. Anything that does not look like a
     # vendor-prefixed id is shown verbatim rather than mangled.
+    #
+    # Claude ids follow the same rule, with the dashes between version digits
+    # read as the dot they stand for: "claude-haiku-5-5" reads as "Haiku 5.5".
+    # The composer sits in a narrow sidebar, so the label stays short.
     def humanize_model(id)
+      if (claude = id.to_s.match(/\Aclaude-([a-z]+)-(\d+)(?:-(\d{1,2}))?\z/))
+        return [ claude[1].capitalize, [ claude[2], claude[3] ].compact.join(".") ].join(" ")
+      end
+
       rest = id.to_s.sub(/\Agpt-/, "")
       return id.to_s if rest.blank? || rest == id.to_s && !id.to_s.match?(/\A[a-z]\d/)
 
       rest.split(/[-_]/).map { |part| part.match?(/\A[\d.]+\z/) ? part : part.capitalize }.join(" ")
+    end
+
+    # Models the composer offers, in a fixed order: the install default, the
+    # Claude models when an Anthropic key is configured, and last the model the
+    # conversation is on if it is none of those (an older or custom one), so
+    # it can still be kept. The default stays unchanged; Claude is an option.
+    def offered_models(selected = nil)
+      [ default_model, *Provider::Anthropic.chat_models, selected ].compact_blank.uniq
+    end
+
+    # Whether the thinking-depth picker means anything for this model.
+    def supports_reasoning_effort?(model)
+      Provider::Openai.supports_reasoning_effort?(model) || Provider::Anthropic.supports_effort?(model)
     end
 
     # Returns the default AI model to use for chats.
@@ -81,6 +102,43 @@ class Chat < ApplicationRecord
         Provider::Openai.effective_model.presence || Setting.openai_model
       end
     end
+  end
+
+  # The title a chat starts with is its truncated first prompt. Anything else
+  # was chosen by someone (renamed in the UI, or set through the API) and is
+  # never replaced by a generated one.
+  def placeholder_title?
+    first_prompt = conversation_messages.where(type: "UserMessage").ordered.first&.content
+    first_prompt.present? && title == self.class.generate_title(first_prompt)
+  end
+
+  # Queues title generation once, after the first answer has arrived: the
+  # prompt plus the answer say more about the conversation than the prompt.
+  def generate_title_later
+    return unless placeholder_title?
+    return unless messages.where(type: "AssistantMessage", status: "complete").count == 1
+
+    GenerateChatTitleJob.perform_later(self)
+  end
+
+  # Writes the title only while the placeholder is still in place, in one
+  # conditional UPDATE, so a rename that lands while the model was answering
+  # wins. Returns whether the title changed.
+  def apply_generated_title!(new_title)
+    placeholder = title
+    return false unless placeholder_title?
+
+    updated = self.class.where(id: id, title: placeholder).update_all(title: new_title, updated_at: Time.current).positive?
+    return false unless updated
+
+    reload
+    # A chat page can show the title more than once (main column and sidebar),
+    # so every copy of the title frame is replaced, not just the first.
+    broadcast_replace_to self,
+      targets: "[id='#{ActionView::RecordIdentifier.dom_id(self, :title)}']",
+      partial: "chats/chat_title",
+      locals: { chat: self, ctx: "chat" }
+    true
   end
 
   def needs_assistant_response?
