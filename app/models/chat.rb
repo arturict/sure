@@ -70,11 +70,12 @@ class Chat < ApplicationRecord
       rest.split(/[-_]/).map { |part| part.match?(/\A[\d.]+\z/) ? part : part.capitalize }.join(" ")
     end
 
-    # Models the composer offers: the one the conversation is on, the install
-    # default, then the Claude models when an Anthropic key is configured.
-    # The default stays first-class and unchanged; Claude is an option.
+    # Models the composer offers, in a fixed order: the install default, the
+    # Claude models when an Anthropic key is configured, and last the model the
+    # conversation is on if it is none of those (an older or custom one), so
+    # it can still be kept. The default stays unchanged; Claude is an option.
     def offered_models(selected = nil)
-      [ selected, default_model, *Provider::Anthropic.chat_models ].compact_blank.uniq
+      [ default_model, *Provider::Anthropic.chat_models, selected ].compact_blank.uniq
     end
 
     # Whether the thinking-depth picker means anything for this model.

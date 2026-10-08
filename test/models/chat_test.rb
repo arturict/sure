@@ -18,7 +18,8 @@ class ChatTest < ActiveSupport::TestCase
   test "offered_models adds the Claude models when an Anthropic key is configured" do
     with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-6-luna", ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: nil do
       assert_equal %w[gpt-6-luna claude-haiku-5-5 claude-sonnet-5-5], Chat.offered_models("gpt-6-luna")
-      assert_equal %w[claude-sonnet-5-5 gpt-6-luna claude-haiku-5-5], Chat.offered_models("claude-sonnet-5-5")
+      assert_equal %w[gpt-6-luna claude-haiku-5-5 claude-sonnet-5-5], Chat.offered_models("claude-sonnet-5-5")
+      assert_equal %w[gpt-6-luna claude-haiku-5-5 claude-sonnet-5-5 gpt-4.1], Chat.offered_models("gpt-4.1")
     end
   end
 

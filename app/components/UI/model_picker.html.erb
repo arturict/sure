@@ -1,6 +1,6 @@
 <div class="chat-model-picker" data-chat-model-picker-target="menu">
   <% if choice? %>
-    <%= render DS::Menu.new(variant: :button, placement: placement) do |menu| %>
+    <%= render DS::Menu.new(variant: :button, placement: placement, mobile_fullwidth: false) do |menu| %>
       <% menu.with_button(
            type: "button",
            class: "inline-flex items-center gap-1 bg-container border border-secondary font-medium rounded-lg pl-2.5 pr-1.5 py-1 text-xs cursor-pointer text-primary hover:bg-container-inset-hover focus:outline-hidden focus:ring-0",
