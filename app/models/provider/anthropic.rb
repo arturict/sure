@@ -35,8 +35,9 @@ class Provider::Anthropic < Provider
 
   # Room for adaptive thinking plus the answer. Chat always streams, so a large
   # ceiling cannot run into the SDK's request timeout, and only generated
-  # tokens are billed.
-  DEFAULT_CHAT_MAX_TOKENS = 16_000
+  # tokens are billed. Haiku 5.5 at max effort used about 8K output tokens on
+  # one round of a two-step finance question (observed 2026-10-08).
+  DEFAULT_CHAT_MAX_TOKENS = 64_000
 
   def self.effective_model
     # Use ENV[].presence rather than ENV.fetch(KEY, default) so the Setting
