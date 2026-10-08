@@ -55,11 +55,30 @@ class Chat < ApplicationRecord
     # is actually called. The vendor prefix is dropped and the remainder title
     # cased, leaving version numbers alone. Anything that does not look like a
     # vendor-prefixed id is shown verbatim rather than mangled.
+    #
+    # Claude ids keep the family name, since the composer can now list them next
+    # to OpenAI's: "claude-haiku-5-5" reads as "Claude Haiku 5.5".
     def humanize_model(id)
+      if (claude = id.to_s.match(/\Aclaude-([a-z]+)-(\d+)(?:-(\d{1,2}))?\z/))
+        return [ "Claude", claude[1].capitalize, [ claude[2], claude[3] ].compact.join(".") ].join(" ")
+      end
+
       rest = id.to_s.sub(/\Agpt-/, "")
       return id.to_s if rest.blank? || rest == id.to_s && !id.to_s.match?(/\A[a-z]\d/)
 
       rest.split(/[-_]/).map { |part| part.match?(/\A[\d.]+\z/) ? part : part.capitalize }.join(" ")
+    end
+
+    # Models the composer offers: the one the conversation is on, the install
+    # default, then the Claude models when an Anthropic key is configured.
+    # The default stays first-class and unchanged; Claude is an option.
+    def offered_models(selected = nil)
+      [ selected, default_model, *Provider::Anthropic.chat_models ].compact_blank.uniq
+    end
+
+    # Whether the thinking-depth picker means anything for this model.
+    def supports_reasoning_effort?(model)
+      Provider::Openai.supports_reasoning_effort?(model) || Provider::Anthropic.supports_effort?(model)
     end
 
     # Returns the default AI model to use for chats.

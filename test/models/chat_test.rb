@@ -8,6 +8,50 @@ class ChatTest < ActiveSupport::TestCase
     assert_equal "4.1", Chat.humanize_model("gpt-4.1")
   end
 
+  test "humanize_model names Claude models by family and version" do
+    assert_equal "Claude Haiku 5.5", Chat.humanize_model("claude-haiku-5-5")
+    assert_equal "Claude Sonnet 5.5", Chat.humanize_model("claude-sonnet-5-5")
+    assert_equal "Claude Sonnet 4.6", Chat.humanize_model("claude-sonnet-4-6")
+    assert_equal "Claude Opus 5", Chat.humanize_model("claude-opus-5")
+  end
+
+  test "offered_models adds the Claude models when an Anthropic key is configured" do
+    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-6-luna", ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: nil do
+      assert_equal %w[gpt-6-luna claude-haiku-5-5 claude-sonnet-5-5], Chat.offered_models("gpt-6-luna")
+      assert_equal %w[claude-sonnet-5-5 gpt-6-luna claude-haiku-5-5], Chat.offered_models("claude-sonnet-5-5")
+    end
+  end
+
+  test "offered_models has no Claude models without an Anthropic key" do
+    Setting.stubs(:anthropic_access_token).returns(nil)
+
+    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-6-luna", ANTHROPIC_API_KEY: nil, ANTHROPIC_ACCESS_TOKEN: nil do
+      assert_equal %w[gpt-6-luna], Chat.offered_models("gpt-6-luna")
+    end
+  end
+
+  test "offered_models leaves first-party Claude ids out for a custom Anthropic endpoint" do
+    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-6-luna", ANTHROPIC_API_KEY: "test-key", ANTHROPIC_BASE_URL: "https://bedrock.example.test" do
+      assert_equal %w[gpt-6-luna], Chat.offered_models("gpt-6-luna")
+    end
+  end
+
+  test "an Anthropic key does not change the default model" do
+    Setting.stubs(:llm_provider).returns(nil)
+
+    with_env_overrides OPENAI_ACCESS_TOKEN: "test-token", OPENAI_MODEL: "gpt-6-luna", ANTHROPIC_API_KEY: "test-key" do
+      assert_equal "gpt-6-luna", Chat.default_model
+    end
+  end
+
+  test "both Claude 5.5 models take a thinking depth" do
+    assert Chat.supports_reasoning_effort?("claude-haiku-5-5")
+    assert Chat.supports_reasoning_effort?("claude-sonnet-5-5")
+    assert Chat.supports_reasoning_effort?("gpt-6-luna")
+    assert_not Chat.supports_reasoning_effort?("claude-haiku-4-5")
+    assert_not Chat.supports_reasoning_effort?("gpt-4.1")
+  end
+
   test "humanize_model leaves ids it does not recognize verbatim" do
     assert_equal "my-local/model:7b", Chat.humanize_model("my-local/model:7b")
   end
