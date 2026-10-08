@@ -6,6 +6,8 @@ class Provider::Anthropic::ChatConfig
     function_results: [],
     tool_choice: nil,
     conversation_history: [],
+    messages: nil,
+    effort: nil,
     default_max_tokens: 4096
   )
     @prompt = prompt
@@ -14,6 +16,8 @@ class Provider::Anthropic::ChatConfig
     @function_results = function_results
     @tool_choice = tool_choice
     @conversation_history = conversation_history
+    @messages = messages
+    @effort = effort
     @default_max_tokens = default_max_tokens
   end
 
@@ -21,8 +25,13 @@ class Provider::Anthropic::ChatConfig
     params = {
       model: model,
       max_tokens: @default_max_tokens,
-      messages: build_messages
+      messages: @messages || build_messages
     }
+
+    # Effort is the only thinking control sent. `thinking` stays unset so the
+    # Claude 5 models think adaptively (an explicit budget or "disabled" is a
+    # 400 on Sonnet 5.5), and no sampling parameters are sent at all.
+    params[:output_config] = { effort: @effort } if @effort.present?
 
     system_blocks = build_system_blocks
     params[:system_] = system_blocks if system_blocks.present?
@@ -32,7 +41,8 @@ class Provider::Anthropic::ChatConfig
       params[:tools] = tool_blocks
       # Forbidding further tool calls still requires sending the tool
       # definitions — the API rejects messages containing tool_use/tool_result
-      # blocks when no tools are defined.
+      # blocks when no tools are defined. Otherwise tool_choice is left at the
+      # API's `auto`: forcing a tool (`any`/`tool`) is a 400 on Sonnet 5.5.
       params[:tool_choice] = { type: "none" } if @tool_choice == :none
     end
 

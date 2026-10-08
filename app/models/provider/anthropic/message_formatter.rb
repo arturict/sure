@@ -1,4 +1,40 @@
 class Provider::Anthropic::MessageFormatter
+  # A tool_result block answering one function result (`call_id`, `output`).
+  def self.tool_result_block(function_result)
+    {
+      type: "tool_result",
+      tool_use_id: function_result[:call_id],
+      content: serialize_output(function_result[:output])
+    }
+  end
+
+  # Anthropic's Messages API requires `tool_use.input` to be a JSON object
+  # (map). Normalize any non-Hash result to `{}` so corrupt or legacy
+  # ToolCall::Function records can't produce a payload Anthropic rejects.
+  def self.parse_tool_input(arguments)
+    parsed =
+      case arguments
+      when nil then {}
+      when Hash then arguments
+      when String
+        return {} if arguments.blank?
+        JSON.parse(arguments)
+      else arguments
+      end
+
+    parsed.is_a?(Hash) ? parsed : {}
+  rescue JSON::ParserError
+    {}
+  end
+
+  def self.serialize_output(output)
+    case output
+    when nil then ""
+    when String then output
+    else output.to_json
+    end
+  end
+
   # Builds the `messages` array Anthropic expects.
   #
   # Inputs:
@@ -104,37 +140,14 @@ class Provider::Anthropic::MessageFormatter
     end
 
     def tool_result_block(function_result)
-      {
-        type: "tool_result",
-        tool_use_id: function_result[:call_id],
-        content: serialize_output(function_result[:output])
-      }
+      self.class.tool_result_block(function_result)
     end
 
-    # Anthropic's Messages API requires `tool_use.input` to be a JSON object
-    # (map). Normalize any non-Hash result to `{}` so corrupt or legacy
-    # ToolCall::Function records can't produce a payload Anthropic rejects.
     def parse_arguments(arguments)
-      parsed =
-        case arguments
-        when nil then {}
-        when Hash then arguments
-        when String
-          return {} if arguments.blank?
-          JSON.parse(arguments)
-        else arguments
-        end
-
-      parsed.is_a?(Hash) ? parsed : {}
-    rescue JSON::ParserError
-      {}
+      self.class.parse_tool_input(arguments)
     end
 
     def serialize_output(output)
-      case output
-      when nil then ""
-      when String then output
-      else output.to_json
-      end
+      self.class.serialize_output(output)
     end
 end

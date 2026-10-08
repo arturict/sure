@@ -7,3 +7,6 @@ de:
       no_response: Der Assistent hat nicht geantwortet. Möglicherweise läuft der Hintergrundprozess nicht oder die KI ist noch nicht vollständig eingerichtet. Versuch es noch einmal.
       rate_limited: Der KI-Anbieter drosselt gerade die Anfragen. Versuch es in ein paar Minuten noch einmal.
       temporarily_unavailable: Der KI-Anbieter ist vorübergehend nicht erreichbar. Versuch es in ein paar Minuten noch einmal.
+    notices:
+      max_tokens: Die Antwort wurde abgeschnitten, weil sie die maximale Länge erreicht hat.
+      refusal: Das Modell hat diese Anfrage abgelehnt. Formuliere sie anders oder wähle ein anderes Modell.

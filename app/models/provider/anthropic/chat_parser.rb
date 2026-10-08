@@ -1,6 +1,16 @@
 class Provider::Anthropic::ChatParser
   Error = Class.new(StandardError)
 
+  # Text to show when the model stopped for a reason the user should know
+  # about: a safety refusal (HTTP 200 with stop_reason "refusal") or an answer
+  # cut off at max_tokens. nil for a normal stop.
+  def self.stop_notice(message)
+    case message.respond_to?(:stop_reason) ? message.stop_reason.to_s : ""
+    when "refusal" then I18n.t("chat.notices.refusal")
+    when "max_tokens" then I18n.t("chat.notices.max_tokens")
+    end
+  end
+
   def initialize(message)
     @message = message
   end
@@ -30,18 +40,25 @@ class Provider::Anthropic::ChatParser
     end
 
     def messages
-      text_blocks = content_blocks.select { |block| block_type(block) == :text }
-      return [] if text_blocks.empty?
+      texts = content_blocks.select { |block| block_type(block) == :text }.map { |b| block_value(b, :text) }.compact
+      texts << self.class.stop_notice(message) if self.class.stop_notice(message)
+      return [] if texts.empty?
 
       [
         ChatMessage.new(
           id: response_id,
-          output_text: text_blocks.map { |b| block_value(b, :text) }.compact.join("\n")
+          output_text: texts.join("\n")
         )
       ]
     end
 
     def function_requests
+      # A response that stopped early never finished its tool calls: a refusal
+      # is not a request for data, and a tool_use cut off at max_tokens has
+      # partial input. Running either would act on something the model did
+      # not finish asking for.
+      return [] if self.class.stop_notice(message)
+
       content_blocks
         .select { |block| block_type(block) == :tool_use }
         .map do |block|
