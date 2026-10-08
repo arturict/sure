@@ -39,6 +39,11 @@ class Provider::Anthropic < Provider
   # one round of a two-step finance question (observed 2026-10-08).
   DEFAULT_CHAT_MAX_TOKENS = 64_000
 
+  # The SDK refuses a non-streaming request whose max_tokens could take longer
+  # than its 10-minute timeout (about 21K tokens), so calls without a streamer,
+  # such as title generation, get a ceiling below that.
+  NONSTREAMING_MAX_TOKENS = 16_000
+
   def self.effective_model
     # Use ENV[].presence rather than ENV.fetch(KEY, default) so the Setting
     # lookup is only performed when the ENV var is actually absent — otherwise
@@ -278,7 +283,7 @@ class Provider::Anthropic < Provider
         conversation_history: conversation_history,
         messages: tool_round_messages(previous_response_id, function_results),
         effort: self.class.effort_for(model, reasoning_effort),
-        default_max_tokens: default_max_tokens
+        default_max_tokens: streamer.present? ? default_max_tokens : [ default_max_tokens, NONSTREAMING_MAX_TOKENS ].min
       )
 
       request_params = chat_config.build_request(model: model)

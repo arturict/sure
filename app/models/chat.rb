@@ -104,6 +104,43 @@ class Chat < ApplicationRecord
     end
   end
 
+  # The title a chat starts with is its truncated first prompt. Anything else
+  # was chosen by someone (renamed in the UI, or set through the API) and is
+  # never replaced by a generated one.
+  def placeholder_title?
+    first_prompt = conversation_messages.where(type: "UserMessage").ordered.first&.content
+    first_prompt.present? && title == self.class.generate_title(first_prompt)
+  end
+
+  # Queues title generation once, after the first answer has arrived: the
+  # prompt plus the answer say more about the conversation than the prompt.
+  def generate_title_later
+    return unless placeholder_title?
+    return unless messages.where(type: "AssistantMessage", status: "complete").count == 1
+
+    GenerateChatTitleJob.perform_later(self)
+  end
+
+  # Writes the title only while the placeholder is still in place, in one
+  # conditional UPDATE, so a rename that lands while the model was answering
+  # wins. Returns whether the title changed.
+  def apply_generated_title!(new_title)
+    placeholder = title
+    return false unless placeholder_title?
+
+    updated = self.class.where(id: id, title: placeholder).update_all(title: new_title, updated_at: Time.current).positive?
+    return false unless updated
+
+    reload
+    # A chat page can show the title more than once (main column and sidebar),
+    # so every copy of the title frame is replaced, not just the first.
+    broadcast_replace_to self,
+      targets: "[id='#{ActionView::RecordIdentifier.dom_id(self, :title)}']",
+      partial: "chats/chat_title",
+      locals: { chat: self, ctx: "chat" }
+    true
+  end
+
   def needs_assistant_response?
     conversation_messages.ordered.last.role != "assistant"
   end
