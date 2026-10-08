@@ -103,14 +103,14 @@ class ChatsTest < ApplicationSystemTestCase
       chat = prepare_reasoning_chat
       visit chat_url(chat)
 
-      choose_model("Claude Haiku 5.5")
+      choose_model("Haiku 5.5")
       send_prompt("What are my balances?")
 
       assert_equal "claude-haiku-5-5", chat.messages.where(type: "UserMessage").order(:created_at).last.ai_model
 
       # A follow-up defaults to the model the conversation is on.
       visit chat_url(chat)
-      assert_selector "#chat-container .chat-model-picker button", text: "Claude Haiku 5.5"
+      assert_selector "#chat-container .chat-model-picker button", text: "Haiku 5.5"
     end
   end
 
@@ -122,7 +122,7 @@ class ChatsTest < ApplicationSystemTestCase
       visit root_url
       assert_selector "#chat-container .chat-model-picker button", text: "6 Luna"
 
-      choose_model("Claude Sonnet 5.5")
+      choose_model("Sonnet 5.5")
       send_prompt("How much did I spend last month?")
 
       assert_no_text "Content missing"
@@ -138,7 +138,7 @@ class ChatsTest < ApplicationSystemTestCase
 
       assert_no_selector "#chat-container .chat-effort-picker", visible: true
 
-      choose_model("Claude Sonnet 5.5")
+      choose_model("Sonnet 5.5")
 
       assert_selector "#chat-container .chat-effort-picker", visible: true
       choose_depth("effort_high")
@@ -154,7 +154,8 @@ class ChatsTest < ApplicationSystemTestCase
 
       assert_selector "#chat-container #chat-form", text: "6 Luna"
       assert_no_selector "#chat-container .chat-model-picker button"
-      assert_no_text "Claude"
+      assert_no_text "Haiku 5.5"
+      assert_no_text "Sonnet 5.5"
     end
   end
 

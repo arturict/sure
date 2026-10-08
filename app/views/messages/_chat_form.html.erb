@@ -17,7 +17,10 @@
                   rows: 1 %>
 
     <div class="flex items-center justify-between gap-1">
-      <div class="flex items-center gap-1"
+      <%# Wraps instead of overflowing: the sidebar is narrow, and two pickers
+          next to the disabled shortcuts would otherwise push the send button
+          out of view. %>
+      <div class="flex flex-wrap items-center gap-1 min-w-0"
            data-controller="chat-model-picker"
            data-chat-model-picker-aria-label-value="<%= t(".model_aria", model: "%{model}") %>">
         <div class="items-center gap-1 hidden lg:flex">
@@ -46,7 +49,7 @@
         <% end %>
       </div>
 
-      <%= icon("arrow-up", as_button: true, type: "submit",
+      <%= icon("arrow-up", as_button: true, type: "submit", class: "shrink-0",
               data: { chat_target: "submit" }) %>
     </div>
   <% end %>

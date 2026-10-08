@@ -56,11 +56,12 @@ class Chat < ApplicationRecord
     # cased, leaving version numbers alone. Anything that does not look like a
     # vendor-prefixed id is shown verbatim rather than mangled.
     #
-    # Claude ids keep the family name, since the composer can now list them next
-    # to OpenAI's: "claude-haiku-5-5" reads as "Claude Haiku 5.5".
+    # Claude ids follow the same rule, with the dashes between version digits
+    # read as the dot they stand for: "claude-haiku-5-5" reads as "Haiku 5.5".
+    # The composer sits in a narrow sidebar, so the label stays short.
     def humanize_model(id)
       if (claude = id.to_s.match(/\Aclaude-([a-z]+)-(\d+)(?:-(\d{1,2}))?\z/))
-        return [ "Claude", claude[1].capitalize, [ claude[2], claude[3] ].compact.join(".") ].join(" ")
+        return [ claude[1].capitalize, [ claude[2], claude[3] ].compact.join(".") ].join(" ")
       end
 
       rest = id.to_s.sub(/\Agpt-/, "")

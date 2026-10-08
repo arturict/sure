@@ -13,7 +13,7 @@ class UI::ModelPickerTest < ViewComponent::TestCase
 
     assert_selector "[role='menuitemradio']", count: 3
     assert_selector "[role='menuitemradio'][aria-checked='true']", text: "6 Luna"
-    assert_selector "a[data-action='chat-model-picker#select'][data-chat-model-picker-model-param='claude-haiku-5-5']", text: "Claude Haiku 5.5"
-    assert_selector "a[data-chat-model-picker-model-param='claude-sonnet-5-5'][data-chat-model-picker-effort-param='true']", text: "Claude Sonnet 5.5"
+    assert_selector "a[data-action='chat-model-picker#select'][data-chat-model-picker-model-param='claude-haiku-5-5']", text: "Haiku 5.5"
+    assert_selector "a[data-chat-model-picker-model-param='claude-sonnet-5-5'][data-chat-model-picker-effort-param='true']", text: "Sonnet 5.5"
   end
 end

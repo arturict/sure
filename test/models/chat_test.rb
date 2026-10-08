@@ -9,10 +9,10 @@ class ChatTest < ActiveSupport::TestCase
   end
 
   test "humanize_model names Claude models by family and version" do
-    assert_equal "Claude Haiku 5.5", Chat.humanize_model("claude-haiku-5-5")
-    assert_equal "Claude Sonnet 5.5", Chat.humanize_model("claude-sonnet-5-5")
-    assert_equal "Claude Sonnet 4.6", Chat.humanize_model("claude-sonnet-4-6")
-    assert_equal "Claude Opus 5", Chat.humanize_model("claude-opus-5")
+    assert_equal "Haiku 5.5", Chat.humanize_model("claude-haiku-5-5")
+    assert_equal "Sonnet 5.5", Chat.humanize_model("claude-sonnet-5-5")
+    assert_equal "Sonnet 4.6", Chat.humanize_model("claude-sonnet-4-6")
+    assert_equal "Opus 5", Chat.humanize_model("claude-opus-5")
   end
 
   test "offered_models adds the Claude models when an Anthropic key is configured" do
